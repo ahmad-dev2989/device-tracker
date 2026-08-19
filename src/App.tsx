@@ -423,8 +423,15 @@ function App() {
               onClick={handleInstallApp}
               className="bg-secondary text-on-secondary font-bold px-3 py-1 rounded hover:bg-opacity-95 transition-colors cursor-pointer text-[10px]"
             >
-              Install App
+              Add Icon
             </button>
+            <a
+              href="https://github.com/ahmad-dev2989/device-tracker/releases/download/v1.0.0/app-debug.apk"
+              download
+              className="bg-primary text-on-primary font-bold px-3 py-1 rounded hover:bg-opacity-95 transition-all text-[10px] text-center inline-block"
+            >
+              Download APK
+            </a>
             <button
               onClick={() => setShowInstallBtn(false)}
               className="text-on-surface-variant hover:text-on-surface p-1 transition-colors cursor-pointer"
