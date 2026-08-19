@@ -53,3 +53,45 @@ jobs:
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+  publish-android:
+    permissions:
+      contents: write
+    runs-on: "ubuntu-latest"
+    steps:
+      - name: "Checkout repository"
+        uses: actions/checkout@v4
+
+      - name: "Setup Node.js"
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: "Install Java JDK"
+        uses: actions/setup-java@v4
+        with:
+          distribution: "zulu"
+          java-version: "17"
+
+      - name: "Install dependencies"
+        run: npm install
+
+      - name: "Build frontend"
+        run: npm run build
+
+      - name: "Sync Capacitor Android"
+        run: npx cap sync android
+
+      - name: "Build Android Debug APK"
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: "Rename and Upload APK to Release"
+        uses: softprops/action-gh-release@v2
+        with:
+          files: android/app/build/outputs/apk/debug/app-debug.apk
+          tag_name: ${{ github.ref_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
