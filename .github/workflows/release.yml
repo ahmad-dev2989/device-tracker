@@ -25,6 +25,9 @@ jobs:
           distribution: "zulu"
           java-version: "17"
 
+      - name: "Install Android SDK"
+        uses: android-actions/setup-android@v3
+
       - name: "Install dependencies"
         run: npm install
 
