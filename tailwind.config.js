@@ -1,0 +1,82 @@
+/** @type {import('tailwindcss').Config} */
+export default {
+  content: [
+    "./index.html",
+    "./src/**/*.{js,ts,jsx,tsx}",
+  ],
+  darkMode: "class",
+  theme: {
+    extend: {
+      colors: {
+        "on-secondary": "#ffffff",
+        "on-primary-fixed": "#001452",
+        "tertiary-fixed-dim": "#ffb3ac",
+        "on-tertiary-container": "#ffddda",
+        "surface-dim": "#cbdbf5",
+        "outline-variant": "#c3c5d9",
+        "outline": "#737688",
+        "on-primary-fixed-variant": "#0038b6",
+        "on-secondary-fixed": "#002113",
+        "secondary-fixed-dim": "#6fdba7",
+        "surface-container-low": "#eff4ff",
+        "primary-fixed": "#dde1ff",
+        "primary-container": "#0052ff",
+        "on-error-container": "#93000a",
+        "on-secondary-container": "#00734d",
+        "on-primary": "#ffffff",
+        "on-tertiary": "#ffffff",
+        "secondary-fixed": "#8bf8c2",
+        "inverse-primary": "#b7c4ff",
+        "on-surface-variant": "#434656",
+        "on-error": "#ffffff",
+        "surface-tint": "#004ced",
+        "surface-bright": "#f8f9ff",
+        "on-tertiary-fixed": "#410003",
+        "primary": "#003ec7",
+        "surface": "#f8f9ff",
+        "error": "#ba1a1a",
+        "surface-container-high": "#dce9ff",
+        "tertiary": "#a10012",
+        "primary-fixed-dim": "#b7c4ff",
+        "tertiary-container": "#c52427",
+        "error-container": "#ffdad6",
+        "secondary": "#006c48",
+        "surface-container-lowest": "#ffffff",
+        "on-secondary-fixed-variant": "#005235",
+        "on-background": "#0b1c30",
+        "surface-container": "#e5eeff",
+        "on-primary-container": "#dfe3ff",
+        "inverse-surface": "#213145",
+        "surface-variant": "#d3e4fe",
+        "tertiary-fixed": "#ffdad6",
+        "on-surface": "#0b1c30",
+        "background": "#f8f9ff",
+        "secondary-container": "#8bf8c2",
+        "inverse-on-surface": "#eaf1ff",
+        "surface-container-highest": "#d3e4fe",
+        "on-tertiary-fixed-variant": "#930010"
+      },
+      borderRadius: {
+        "DEFAULT": "0.125rem",
+        "lg": "0.25rem",
+        "xl": "0.5rem",
+        "full": "0.75rem"
+      },
+      spacing: {
+        "container-max": "1280px",
+        "gutter": "24px",
+        "margin-mobile": "16px",
+        "unit": "4px",
+        "stack-md": "16px",
+        "stack-lg": "24px",
+        "stack-sm": "8px",
+        "margin-desktop": "32px"
+      },
+      fontFamily: {
+        sans: ["Inter", "sans-serif"],
+        mono: ["JetBrains Mono", "monospace"]
+      }
+    },
+  },
+  plugins: [],
+}
