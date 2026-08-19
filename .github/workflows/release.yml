@@ -1,4 +1,4 @@
-name: "Publish Native Releases"
+name: "Publish Mobile Release"
 
 on:
   push:
@@ -6,54 +6,6 @@ on:
       - "v*"
 
 jobs:
-  publish-tauri:
-    permissions:
-      contents: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: "windows-latest"
-            args: ""
-          - platform: "ubuntu-22.04"
-            args: ""
-
-    runs-on: ${{ matrix.platform }}
-    steps:
-      - name: "Checkout repository"
-        uses: actions/checkout@v4
-
-      - name: "Setup Node.js"
-        uses: actions/setup-node@v4
-        with:
-          node-version: lts/*
-
-      - name: "Install Rust toolchain"
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: "Install Linux dependencies"
-        if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-
-      - name: "Install frontend dependencies"
-        run: npm install
-
-      - name: "Build App and Publish Github Release"
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "OmniRecover Native v__VERSION__"
-          releaseBody: "Automated production build binaries for OmniRecover Security Sentinel."
-          releaseDraft: true
-          prerelease: false
-          args: ${{ matrix.args }}
-
   publish-android:
     permissions:
       contents: write
@@ -88,10 +40,13 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug
 
-      - name: "Rename and Upload APK to Release"
+      - name: "Upload APK to Release"
         uses: softprops/action-gh-release@v2
         with:
           files: android/app/build/outputs/apk/debug/app-debug.apk
           tag_name: ${{ github.ref_name }}
+          name: "OmniRecover Mobile v${{ github.ref_name }}"
+          draft: false
+          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
