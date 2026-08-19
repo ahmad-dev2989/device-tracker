@@ -89,6 +89,46 @@ function App() {
   const [phoneCoords] = useState({ lat: 37.7753, lng: -122.4201 });
   const [proximityDistance, setProximityDistance] = useState<number>(12);
 
+  // PWA Install prompt state
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [showInstallBtn, setShowInstallBtn] = useState<boolean>(true); // Pre-seeded true for simulation visibility
+
+  useEffect(() => {
+    const handlePrompt = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setShowInstallBtn(true);
+      addLog("SYS", "Mobile browser PWA installation trigger received.");
+    };
+
+    window.addEventListener("beforeinstallprompt", handlePrompt);
+
+    window.addEventListener("appinstalled", () => {
+      addLog("SYS", "OmniRecover PWA client successfully installed.");
+      setDeferredPrompt(null);
+      setShowInstallBtn(false);
+    });
+
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handlePrompt);
+    };
+  }, []);
+
+  const handleInstallApp = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      console.log(`PWA install prompt user choice: ${outcome}`);
+      setDeferredPrompt(null);
+      setShowInstallBtn(false);
+    } else {
+      // Browser Simulation fallback
+      alert("Installing OmniRecover on your mobile Home Screen...\nApp icon added successfully! Boom.");
+      addLog("SYS", "PWA installation simulation success.");
+      setShowInstallBtn(false);
+    }
+  };
+
   // Log simulation updates
   const addLog = (type: LogMessage["type"], message: string) => {
     const time = new Date().toISOString().split("T")[1].substring(0, 12) + "Z";
@@ -363,6 +403,30 @@ function App() {
             </button>
             <button
               onClick={dismissUpdate}
+              className="text-on-surface-variant hover:text-on-surface p-1 transition-colors cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 1.6 PWA Mobile Install Banner */}
+      {showInstallBtn && (
+        <div className="bg-secondary-container text-on-secondary-container border-b border-outline-variant px-gutter py-2.5 flex items-center justify-between text-xs select-none z-40 animate-slide-in">
+          <div className="flex items-center gap-2">
+            <span className="bg-secondary text-on-secondary font-bold text-[9px] px-1.5 py-0.5 rounded-full shrink-0">PWA INSTALL</span>
+            <span className="font-semibold">Add OmniRecover to your mobile Home Screen for a native standalone app experience!</span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={handleInstallApp}
+              className="bg-secondary text-on-secondary font-bold px-3 py-1 rounded hover:bg-opacity-95 transition-colors cursor-pointer text-[10px]"
+            >
+              Install App
+            </button>
+            <button
+              onClick={() => setShowInstallBtn(false)}
               className="text-on-surface-variant hover:text-on-surface p-1 transition-colors cursor-pointer"
             >
               <X className="w-3.5 h-3.5" />

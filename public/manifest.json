@@ -1,0 +1,30 @@
+{
+  "name": "OmniRecover Sentinel",
+  "short_name": "OmniRecover",
+  "description": "Cross-Platform Anti-Theft & Device Recovery System",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f8f9ff",
+  "theme_color": "#003ec7",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "https://lh3.googleusercontent.com/aida-public/AB6AXuDeN0pGV237pkOSE6dGDyCghVwy3jKKA2JM5C7EScb1O2uUZjawRyGbQ8FZtPi5y7m3zBKHplgQ6q3o2H6tgrSEh77VB2D1i5wqeq2Zqg4zCZ2cr4ap9rZSmpOJoSSfPVixizqL_5-mbkfAEFihqWTEZcjG5tBGc3oVP_FQ8Zn0Ad2jtjv3rjcMAuQeuQgRNUQZUYNfh3HtfFSjqErijXSNlgntZ0pXnLSZC0yzJNKjj8u880vlHiyB-Q",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://lh3.googleusercontent.com/aida-public/AB6AXuDeN0pGV237pkOSE6dGDyCghVwy3jKKA2JM5C7EScb1O2uUZjawRyGbQ8FZtPi5y7m3zBKHplgQ6q3o2H6tgrSEh77VB2D1i5wqeq2Zqg4zCZ2cr4ap9rZSmpOJoSSfPVixizqL_5-mbkfAEFihqWTEZcjG5tBGc3oVP_FQ8Zn0Ad2jtjv3rjcMAuQeuQgRNUQZUYNfh3HtfFSjqErijXSNlgntZ0pXnLSZC0yzJNKjj8u880vlHiyB-Q",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
