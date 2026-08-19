@@ -1,0 +1,46 @@
+{
+  "productName": "OmniRecover",
+  "version": "1.0.0",
+  "identifier": "com.omnirecover.guardian",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "OmniRecover - Secure Recovery System",
+        "width": 1024,
+        "height": 768,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "publisher": "Guardian System Ltd"
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://raw.githubusercontent.com/ahmad-dev2989/device-tracker/main/updater.json"
+      ],
+      "pubkey": "dW51c2VkX2Zvcl9zaW11bGF0aW9uX2F1dG9fdXBkYXRlcl9rZXlfdmFsdWVfc3RyaW5nCg=="
+    }
+  }
+}

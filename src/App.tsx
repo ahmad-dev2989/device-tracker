@@ -5,6 +5,8 @@ import { TelemetryOverlay } from "./components/TelemetryOverlay";
 import { RadarMap } from "./components/RadarMap";
 import { LogsPanel } from "./components/LogsPanel";
 import { SimulatorControl } from "./components/SimulatorControl";
+import { Titlebar } from "./components/Titlebar";
+import { useUpdateChecker } from "./hooks/useUpdateChecker";
 
 // Views
 import { DashboardView } from "./views/DashboardView";
@@ -52,6 +54,9 @@ const PRE_SEEDED_SNAPS = [
 ];
 
 function App() {
+  // Auto Update Checker
+  const { updateAvailable, updateInfo, isUpdating, executeUpdate, dismissUpdate } = useUpdateChecker();
+
   // Global simulated state
   const [activeView, setActiveView] = useState<string>("dashboard");
   const [layoutMode, setLayoutMode] = useState<"desktop" | "mobile" | "fluid">("fluid");
@@ -326,6 +331,9 @@ function App() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col font-sans relative antialiased">
+      {/* 0. Custom Frameless Titlebar Window controls */}
+      <Titlebar />
+
       {/* 1. Design Simulator Control Center */}
       <SimulatorControl
         layoutMode={layoutMode}
@@ -336,6 +344,32 @@ function App() {
         triggerSync={triggerSync}
         isSyncing={isSyncing}
       />
+
+      {/* 1.5 Auto Update Banner Notification */}
+      {updateAvailable && updateInfo && (
+        <div className="bg-primary/10 border-b border-primary/20 px-gutter py-2.5 flex items-center justify-between text-xs text-primary animate-slide-in select-none z-40">
+          <div className="flex items-center gap-2">
+            <span className="bg-primary text-on-primary font-bold text-[9px] px-1.5 py-0.5 rounded-full shrink-0">UPDATE</span>
+            <span className="font-semibold">New version v{updateInfo.version} is available!</span>
+            <span className="hidden lg:inline opacity-80">— {updateInfo.body}</span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={executeUpdate}
+              disabled={isUpdating}
+              className="bg-primary text-on-primary font-bold px-3 py-1 rounded hover:bg-on-primary-fixed-variant transition-colors cursor-pointer disabled:opacity-50 text-[10px]"
+            >
+              {isUpdating ? "Updating..." : "Update Now"}
+            </button>
+            <button
+              onClick={dismissUpdate}
+              className="text-on-surface-variant hover:text-on-surface p-1 transition-colors cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 2. Siren Blast Alert overlay banner */}
       {sirenDetonated && (
