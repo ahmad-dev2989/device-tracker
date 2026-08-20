@@ -42,7 +42,7 @@
       "endpoints": [
         "https://github.com/ahmad-dev2989/device-tracker/releases/latest/download/latest.json"
       ],
-      "pubkey": "dW51c2VkX2Zvcl9zaW11bGF0aW9uX2F1dG9fdXBkYXRlcl9rZXlfdmFsdWVfc3RyaW5nCg=="
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEIyM0Q4NjhFQzMzN0EwNDYKUldSR29EZkRqb1k5c2wvcldxSC9XRC8ya29oNHNrRVhUV3FnZG5kV2wwV0J5YUVaY0gycXFBd1kK"
     }
   }
 }
