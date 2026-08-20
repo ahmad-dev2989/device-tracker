@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { minimizeWindow, toggleMaximizeWindow, closeWindow, isTauri } from "../utils/tauri";
-import { ShieldCheck, Minus, Square, X, Laptop } from "lucide-react";
+import { ShieldCheck, Minus, Square, X } from "lucide-react";
 
 export const Titlebar: React.FC = () => {
   const [runningInTauri, setRunningInTauri] = useState(false);
@@ -12,39 +12,33 @@ export const Titlebar: React.FC = () => {
   return (
     <div
       data-tauri-drag-region
-      className="h-10 bg-surface-container border-b border-outline-variant flex items-center justify-between px-3 select-none z-50 relative drag-region w-full"
+      className="h-10 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-4 select-none z-50 relative drag-region w-full"
       style={{ cursor: "default" }}
     >
       {/* Title & Brand Icon */}
       <div data-tauri-drag-region className="flex items-center gap-2 pointer-events-none">
-        <ShieldCheck className="w-4 h-4 text-primary animate-pulse" />
-        <span className="text-[11px] font-bold text-on-surface tracking-wide uppercase flex items-center gap-1.5">
+        <ShieldCheck className="w-4 h-4 text-blue-500" />
+        <span className="text-[10px] font-extrabold text-slate-200 tracking-wider uppercase flex items-center gap-1.5 font-sans">
           OmniRecover Console
-          <span className="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
         </span>
       </div>
 
       {/* Center Drag Information */}
       <div
         data-tauri-drag-region
-        className="flex-grow h-full flex items-center justify-center font-mono text-[9px] text-outline font-medium pointer-events-none"
+        className="flex-grow h-full flex items-center justify-center font-mono text-[9px] text-slate-500 font-semibold tracking-wider pointer-events-none"
       >
-        {runningInTauri ? "SECURED IPC BACKEND SHELL" : "TAURI SIMULATOR VIEWPORT"}
+        {runningInTauri ? "SECURED PEER LINK SHELL" : "SIMULATED LOCAL VIEWPORT"}
       </div>
 
-      {/* Right Controls */}
+      {/* Right Window Controls */}
       <div className="flex items-center gap-0.5 h-full">
-        {/* Environment Badge */}
-        <span className="hidden sm:inline-flex items-center gap-1 bg-surface-container-low border border-outline-variant px-2 py-0.5 rounded-full text-[9px] font-semibold text-outline-variant mr-3 pointer-events-none">
-          <Laptop className="w-2.5 h-2.5" />
-          {runningInTauri ? "TAURI" : "BROWSER"}
-        </span>
-
         {/* Minimize */}
         <button
           onClick={minimizeWindow}
-          className="w-8 h-8 rounded hover:bg-surface-variant flex items-center justify-center text-on-surface-variant transition-colors cursor-pointer"
-          title="Minimize Window"
+          className="w-9 h-8 rounded hover:bg-slate-800 flex items-center justify-center text-slate-400 hover:text-white transition-colors cursor-pointer border-0 bg-transparent"
+          title="Minimize"
         >
           <Minus className="w-3.5 h-3.5" />
         </button>
@@ -52,8 +46,8 @@ export const Titlebar: React.FC = () => {
         {/* Maximize */}
         <button
           onClick={toggleMaximizeWindow}
-          className="w-8 h-8 rounded hover:bg-surface-variant flex items-center justify-center text-on-surface-variant transition-colors cursor-pointer"
-          title="Toggle Maximize"
+          className="w-9 h-8 rounded hover:bg-slate-800 flex items-center justify-center text-slate-400 hover:text-white transition-colors cursor-pointer border-0 bg-transparent"
+          title="Maximize"
         >
           <Square className="w-3 h-3" />
         </button>
@@ -61,7 +55,7 @@ export const Titlebar: React.FC = () => {
         {/* Close */}
         <button
           onClick={closeWindow}
-          className="w-8 h-8 rounded hover:bg-error hover:text-on-error flex items-center justify-center text-on-surface-variant transition-colors cursor-pointer"
+          className="w-9 h-8 rounded hover:bg-red-600 hover:text-white flex items-center justify-center text-slate-400 transition-colors cursor-pointer border-0 bg-transparent"
           title="Close Console"
         >
           <X className="w-3.5 h-3.5" />
