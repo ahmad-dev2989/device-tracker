@@ -11,6 +11,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "OmniRecover - Secure Recovery System",
         "width": 1024,
         "height": 768,
@@ -33,12 +34,13 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "publisher": "Guardian System Ltd"
+    "publisher": "Guardian System Ltd",
+    "createUpdaterArtifacts": true
   },
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://raw.githubusercontent.com/ahmad-dev2989/device-tracker/main/updater.json"
+        "https://github.com/ahmad-dev2989/device-tracker/releases/latest/download/latest.json"
       ],
       "pubkey": "dW51c2VkX2Zvcl9zaW11bGF0aW9uX2F1dG9fdXBkYXRlcl9rZXlfdmFsdWVfc3RyaW5nCg=="
     }
