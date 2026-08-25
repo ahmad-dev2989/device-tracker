@@ -141,6 +141,16 @@ function App() {
     } catch (err: any) {
       console.error("[Backend Init Failed]", err);
       
+      if (err.message?.includes("Device not registered")) {
+        addLog("ERR", "Device identity not recognized by server. Re-generating identity...");
+        await secureStore.remove("deviceId");
+        await secureStore.remove("privateKey");
+        await secureStore.remove("publicKey");
+        // Reconnect immediately to trigger a fresh registration
+        initBackendSession();
+        return;
+      }
+      
       const isNetworkError = err.message?.includes("failed to fetch") || 
                              err.message?.includes("fetch failed") || 
                              err.message?.includes("Failed to fetch") ||

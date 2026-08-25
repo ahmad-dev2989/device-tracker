@@ -139,19 +139,27 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({
               <div className="grid grid-cols-2 gap-4">
                 <button
                   onClick={() => handlePairMobile("qr")}
-                  className="bg-blue-600 hover:bg-blue-700 text-white py-3.5 px-4 rounded-xl font-bold text-xs uppercase tracking-wider transition-all flex flex-col items-center justify-center gap-2 cursor-pointer border-0 shadow-md shadow-blue-600/10 hover:shadow-lg"
+                  disabled={connectionStatus !== "Online"}
+                  className="bg-blue-600 hover:bg-blue-700 text-white py-3.5 px-4 rounded-xl font-bold text-xs uppercase tracking-wider transition-all flex flex-col items-center justify-center gap-2 cursor-pointer border-0 shadow-md shadow-blue-600/10 hover:shadow-lg disabled:opacity-50 text-center"
                 >
                   <span className="font-semibold">Generate QR Code</span>
                   <span className="text-[9px] text-blue-100 capitalize font-normal">Scan with phone camera</span>
                 </button>
                 <button
                   onClick={() => handlePairMobile("text")}
-                  className="border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 py-3.5 px-4 rounded-xl font-bold text-xs uppercase tracking-wider transition-all flex flex-col items-center justify-center gap-2 cursor-pointer shadow-sm hover:shadow"
+                  disabled={connectionStatus !== "Online"}
+                  className="border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 py-3.5 px-4 rounded-xl font-bold text-xs uppercase tracking-wider transition-all flex flex-col items-center justify-center gap-2 cursor-pointer shadow-sm hover:shadow disabled:opacity-50 text-center"
                 >
                   <span className="font-semibold text-slate-800">Generate Text Code</span>
                   <span className="text-[9px] text-slate-400 capitalize font-normal">Type code on phone</span>
                 </button>
               </div>
+              {connectionStatus !== "Online" && (
+                <div className="text-[10px] text-slate-400 font-mono text-center flex items-center justify-center gap-1.5 mt-2 animate-pulse">
+                  <RefreshCw className="w-3 h-3 animate-spin" />
+                  Establishing connection to server ({connectionStatus})...
+                </div>
+              )}
             </div>
           ) : pairingRequest ? (
             <div className="space-y-6 bg-slate-50/50 p-6 rounded-2xl border border-slate-100 flex flex-col items-center">

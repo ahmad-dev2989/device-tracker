@@ -215,19 +215,27 @@ export const MobileDashboard: React.FC<MobileDashboardProps> = ({
                   <div className="grid grid-cols-2 gap-4">
                     <button
                       onClick={() => setPairingMode("qr")}
-                      className="bg-blue-600 hover:bg-blue-700 text-white py-3.5 px-4 rounded-xl font-bold text-xs uppercase tracking-wider transition-all flex flex-col items-center justify-center gap-2 cursor-pointer border-0 shadow-md shadow-blue-600/10 hover:shadow-lg text-center"
+                      disabled={connectionStatus !== "Online"}
+                      className="bg-blue-600 hover:bg-blue-700 text-white py-3.5 px-4 rounded-xl font-bold text-xs uppercase tracking-wider transition-all flex flex-col items-center justify-center gap-2 cursor-pointer border-0 shadow-md shadow-blue-600/10 hover:shadow-lg text-center disabled:opacity-50"
                     >
                       <Camera className="w-5 h-5 mx-auto" />
                       <span className="font-semibold block mt-1">Connect by QR Code</span>
                     </button>
                     <button
                       onClick={() => setPairingMode("text")}
-                      className="border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 py-3.5 px-4 rounded-xl font-bold text-xs uppercase tracking-wider transition-all flex flex-col items-center justify-center gap-2 cursor-pointer shadow-sm hover:shadow text-center"
+                      disabled={connectionStatus !== "Online"}
+                      className="border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 py-3.5 px-4 rounded-xl font-bold text-xs uppercase tracking-wider transition-all flex flex-col items-center justify-center gap-2 cursor-pointer shadow-sm hover:shadow text-center disabled:opacity-50"
                     >
                       <Laptop className="w-5 h-5 mx-auto" />
                       <span className="font-semibold text-slate-800 block mt-1">Connect by Text Code</span>
                     </button>
                   </div>
+                  {connectionStatus !== "Online" && (
+                    <div className="text-[10px] text-slate-400 font-mono text-center flex items-center justify-center gap-1.5 mt-2 animate-pulse">
+                      <RefreshCw className="w-3 h-3 animate-spin" />
+                      Establishing connection to server ({connectionStatus})...
+                    </div>
+                  )}
                 </div>
               )}
 
