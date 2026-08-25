@@ -38,9 +38,13 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({
 }) => {
   const [timeLeft, setTimeLeft] = React.useState<number>(60);
   const [error, setError] = React.useState<string | null>(null);
+  const [pairingMode, setPairingMode] = React.useState<"none" | "qr" | "text">("none");
 
   React.useEffect(() => {
-    if (!pairingRequest) return;
+    if (!pairingRequest) {
+      setPairingMode("none");
+      return;
+    }
 
     // Timer countdown
     const expiryTime = new Date(pairingRequest.expiresAt).getTime();
@@ -66,6 +70,7 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({
           clearInterval(poll);
           clearInterval(timer);
           setPairingRequest(null);
+          setPairingMode("none");
         }
       } catch (e) {
         console.warn("Error polling pairing status:", e);
@@ -78,14 +83,16 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({
     };
   }, [pairingRequest, setPairingRequest]);
 
-  const handlePairMobile = async () => {
+  const handlePairMobile = async (mode: "qr" | "text") => {
     setError(null);
+    setPairingMode(mode);
     try {
       const res = await api.createPairingRequest();
       setPairingRequest(res);
       setTimeLeft(res.expiresIn || 60);
     } catch (e: any) {
       setError(e.message || "Failed to initiate pairing request");
+      setPairingMode("none");
     }
   };
 
@@ -97,87 +104,107 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({
       console.warn("Failed to cancel pairing request on server:", e);
     }
     setPairingRequest(null);
+    setPairingMode("none");
   };
 
-  const renderSidebar = () => {
-    if (!pairedDevice) {
-      return (
-        <aside className="w-80 border-r border-slate-200 bg-white flex flex-col shrink-0 h-full p-6 text-left select-none justify-between overflow-y-auto">
-          <div className="space-y-6">
-            <div>
-              <div className="flex justify-between items-center">
-                <h2 className="text-lg font-bold text-slate-900 tracking-tight">Mobile Device</h2>
-                <span
-                  className={`w-2 h-2 rounded-full ${
-                    connectionStatus === "Online"
-                      ? "bg-emerald-500 animate-pulse"
-                      : "bg-slate-400"
-                  }`}
-                ></span>
-              </div>
-              <p className="text-[10px] text-slate-400 mt-1 uppercase font-bold tracking-wider">
-                Status: Not Connected
-              </p>
+  // Render white blank screen setup portal if not paired yet
+  if (!pairedDevice) {
+    return (
+      <div className="flex-1 flex flex-col justify-center items-center bg-white p-8 select-none w-full h-full text-center">
+        <div className="w-full max-w-md space-y-8 animate-fade-in">
+          {/* Logo & Header */}
+          <div className="flex flex-col items-center space-y-3">
+            <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/20 text-white">
+              <Compass className="w-9 h-9 animate-pulse" />
             </div>
+            <h1 className="text-2xl font-black text-slate-800 tracking-tight">OmniRecover</h1>
+            <p className="text-xs text-slate-500 max-w-xs leading-relaxed">
+              Secure Device Recovery & Remote Tracking Console
+            </p>
+          </div>
 
-            <hr className="border-slate-200" />
+          <hr className="border-slate-100" />
 
-            {!pairingRequest ? (
-              <div className="space-y-4">
-                <p className="text-xs text-slate-500 leading-relaxed">
-                  Pair your mobile device to enable remote tracking, location updates, and recovery controls.
-                </p>
-                {error && (
-                  <div className="p-2.5 bg-red-50 border border-red-100 rounded-lg text-[10px] text-red-600 font-mono">
-                    {error}
-                  </div>
-                )}
+          {error && (
+            <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-xs text-red-600 font-mono">
+              {error}
+            </div>
+          )}
+
+          {pairingMode === "none" ? (
+            <div className="space-y-4">
+              <p className="text-xs text-slate-500">
+                To pair your mobile device, choose one of the secure connection options below:
+              </p>
+              <div className="grid grid-cols-2 gap-4">
                 <button
-                  onClick={handlePairMobile}
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2.5 px-4 rounded-lg font-bold text-xs uppercase tracking-wider transition-colors flex items-center justify-center gap-2 cursor-pointer border-0"
+                  onClick={() => handlePairMobile("qr")}
+                  className="bg-blue-600 hover:bg-blue-700 text-white py-3.5 px-4 rounded-xl font-bold text-xs uppercase tracking-wider transition-all flex flex-col items-center justify-center gap-2 cursor-pointer border-0 shadow-md shadow-blue-600/10 hover:shadow-lg"
                 >
-                  Pair Mobile
+                  <span className="font-semibold">Generate QR Code</span>
+                  <span className="text-[9px] text-blue-100 capitalize font-normal">Scan with phone camera</span>
+                </button>
+                <button
+                  onClick={() => handlePairMobile("text")}
+                  className="border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 py-3.5 px-4 rounded-xl font-bold text-xs uppercase tracking-wider transition-all flex flex-col items-center justify-center gap-2 cursor-pointer shadow-sm hover:shadow"
+                >
+                  <span className="font-semibold text-slate-800">Generate Text Code</span>
+                  <span className="text-[9px] text-slate-400 capitalize font-normal">Type code on phone</span>
                 </button>
               </div>
-            ) : (
-              <div className="space-y-5 text-center py-2">
-                <p className="text-xs font-bold text-slate-700">Scan QR with mobile app to pair</p>
-                
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 flex items-center justify-center">
-                  <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(
-                      JSON.stringify({ id: pairingRequest.requestId, code: pairingRequest.pairingCode })
-                    )}`}
-                    alt="Pairing QR Code"
-                    className="w-36 h-36 border border-slate-200 bg-white"
-                  />
+            </div>
+          ) : pairingRequest ? (
+            <div className="space-y-6 bg-slate-50/50 p-6 rounded-2xl border border-slate-100 flex flex-col items-center">
+              {pairingMode === "qr" ? (
+                <div className="space-y-4 w-full flex flex-col items-center">
+                  <p className="text-xs font-bold text-slate-700">Scan this QR code with the mobile app</p>
+                  <div className="bg-white p-4 rounded-2xl border border-slate-200/60 shadow-sm flex items-center justify-center">
+                    <img
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(
+                        JSON.stringify({ id: pairingRequest.requestId, code: pairingRequest.pairingCode })
+                      )}`}
+                      alt="Pairing QR Code"
+                      className="w-40 h-40 bg-white"
+                    />
+                  </div>
                 </div>
+              ) : (
+                <div className="space-y-4 w-full flex flex-col items-center py-2">
+                  <p className="text-xs font-bold text-slate-700">Enter this 6-digit code on the mobile app</p>
+                  <div className="bg-white px-8 py-5 rounded-2xl border border-slate-200/60 shadow-sm">
+                    <span className="text-3xl font-black font-mono tracking-widest text-blue-600">
+                      {pairingRequest.pairingCode}
+                    </span>
+                  </div>
+                </div>
+              )}
 
-                <div className="space-y-1">
-                  <span className="text-[10px] text-slate-400 uppercase tracking-wider font-bold block">Pairing Code</span>
-                  <span className="text-2xl font-black font-mono tracking-widest text-blue-600 block">{pairingRequest.pairingCode}</span>
-                </div>
-
-                <div className="space-y-3">
-                  <p className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">
-                    Expires in: <span className="text-red-500 font-bold">{timeLeft}s</span>
-                  </p>
-                  <button
-                    onClick={handleCancelPairing}
-                    className="w-full border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 py-2 px-4 rounded-lg font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                </div>
+              <div className="w-full space-y-4">
+                <p className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">
+                  Request expires in: <span className="text-red-500 font-bold">{timeLeft}s</span>
+                </p>
+                <button
+                  onClick={handleCancelPairing}
+                  className="w-full border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer"
+                >
+                  Go Back
+                </button>
               </div>
-            )}
-          </div>
-        </aside>
-      );
-    }
+            </div>
+          ) : (
+            <div className="text-center py-6 text-slate-500 text-xs font-semibold">
+              <RefreshCw className="w-6 h-6 animate-spin mx-auto text-blue-600 mb-2" />
+              Initializing secure link...
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
-    // Normal paired sidebar
-    return (
+  // Render normal paired panel with sidebar and radar map
+  return (
+    <div className="flex-1 flex overflow-hidden h-full w-full bg-slate-50">
       <aside className="w-80 border-r border-slate-200 bg-white flex flex-col shrink-0 h-full p-6 text-left select-none justify-between overflow-y-auto">
         <div className="space-y-6">
           {/* Header */}
@@ -297,15 +324,7 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({
           </button>
         </div>
       </aside>
-    );
-  };
 
-  return (
-    <div className="flex-1 flex overflow-hidden h-full w-full bg-slate-50">
-      {/* 1. Side Panel */}
-      {renderSidebar()}
-
-      {/* 2. Main Panel: Map View */}
       <main className="flex-1 h-full relative overflow-hidden flex flex-col">
         <RadarMap
           targetDevice="phone"

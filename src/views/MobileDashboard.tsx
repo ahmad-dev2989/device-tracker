@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { RadarMap } from "../components/RadarMap";
-import { Laptop, Battery, Wifi, Clock, Power, Volume2, RefreshCw, Lock, ChevronUp, ChevronDown, Camera } from "lucide-react";
+import { Laptop, Battery, Wifi, Clock, Power, Volume2, RefreshCw, Lock, ChevronUp, ChevronDown, Camera, Compass } from "lucide-react";
 import { api } from "../utils/api";
 import jsQR from "jsqr";
 
@@ -46,6 +46,7 @@ export const MobileDashboard: React.FC<MobileDashboardProps> = ({
   const [isValidating, setIsValidating] = useState(false);
   const [validationResult, setValidationResult] = useState<any | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pairingMode, setPairingMode] = useState<"none" | "qr" | "text">("none");
 
   // QR Scanner States & Refs
   const [scanning, setScanning] = useState(false);
@@ -133,6 +134,24 @@ export const MobileDashboard: React.FC<MobileDashboardProps> = ({
     }
   };
 
+  const handleValidate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pairingCode || pairingCode.trim().length !== 6) {
+      setError("Please enter a valid 6-digit code");
+      return;
+    }
+    setError(null);
+    setIsValidating(true);
+    try {
+      const res = await api.validatePairingRequest(null, pairingCode.trim());
+      setValidationResult(res);
+    } catch (err: any) {
+      setError(err.message || "Failed to validate pairing code");
+    } finally {
+      setIsValidating(false);
+    }
+  };
+
   const handleApprove = async () => {
     if (!validationResult) return;
     setError(null);
@@ -152,21 +171,26 @@ export const MobileDashboard: React.FC<MobileDashboardProps> = ({
     setPairingCode("");
     setValidationResult(null);
     setError(null);
+    setPairingMode("none");
   };
 
   // Render pairing configuration if not paired yet
   if (!pairedDevice) {
     return (
-      <div className="flex-1 flex flex-col justify-center items-center bg-slate-50 p-6 select-none w-full h-full text-left">
-        <div className="w-full max-w-sm bg-white rounded-2xl border border-slate-200 shadow-xl p-6 space-y-6">
-          <div className="text-center space-y-2">
-            <h3 className="text-lg font-bold text-slate-800">Pair Laptop</h3>
-            <p className="text-xs text-slate-500">
-              Scan the QR code shown on your laptop dashboard to securely link this phone.
+      <div className="flex-1 flex flex-col justify-center items-center bg-white p-8 select-none w-full h-full text-center">
+        <div className="w-full max-w-sm space-y-8 animate-fade-in text-left">
+          {/* Logo & Header */}
+          <div className="flex flex-col items-center space-y-3 text-center">
+            <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/20 text-white">
+              <Compass className="w-9 h-9 animate-pulse" />
+            </div>
+            <h1 className="text-2xl font-black text-slate-800 tracking-tight">OmniRecover</h1>
+            <p className="text-xs text-slate-500 max-w-xs leading-relaxed">
+              Secure Device Recovery & Remote Tracking Console
             </p>
           </div>
 
-          <hr className="border-slate-200" />
+          <hr className="border-slate-100" />
 
           {error && (
             <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-xs text-red-600 font-mono">
@@ -177,40 +201,120 @@ export const MobileDashboard: React.FC<MobileDashboardProps> = ({
           {isValidating && (
             <div className="text-center py-6 space-y-3 font-semibold text-xs text-slate-500">
               <RefreshCw className="w-6 h-6 animate-spin mx-auto text-blue-600" />
-              <p>Validating QR Pairing Link...</p>
+              <p>Validating Pairing Link...</p>
             </div>
           )}
 
-          {!isValidating && !scanning && !validationResult && (
-            <button
-              onClick={startScanner}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-colors flex items-center justify-center gap-2 cursor-pointer border-0"
-            >
-              <Camera className="w-4 h-4" />
-              Scan Laptop QR
-            </button>
-          )}
-
-          {scanning && (
-            <div className="space-y-4">
-              <div className="relative w-full aspect-video rounded-xl overflow-hidden border border-slate-200 bg-black flex items-center justify-center">
-                <video
-                  ref={videoRef}
-                  className="w-full h-full object-cover animate-fade-in"
-                />
-                <canvas ref={canvasRef} className="hidden" />
-                <div className="absolute inset-0 border-2 border-dashed border-blue-500/50 m-6 rounded-lg pointer-events-none animate-pulse flex items-center justify-center">
-                  <div className="w-48 h-0.5 bg-blue-500 animate-bounce opacity-85"></div>
+          {!isValidating && !validationResult && (
+            <>
+              {pairingMode === "none" && (
+                <div className="space-y-4">
+                  <p className="text-xs text-slate-500 text-center">
+                    Choose how you want to pair this mobile device with your laptop:
+                  </p>
+                  <div className="grid grid-cols-2 gap-4">
+                    <button
+                      onClick={() => setPairingMode("qr")}
+                      className="bg-blue-600 hover:bg-blue-700 text-white py-3.5 px-4 rounded-xl font-bold text-xs uppercase tracking-wider transition-all flex flex-col items-center justify-center gap-2 cursor-pointer border-0 shadow-md shadow-blue-600/10 hover:shadow-lg text-center"
+                    >
+                      <Camera className="w-5 h-5 mx-auto" />
+                      <span className="font-semibold block mt-1">Connect by QR Code</span>
+                    </button>
+                    <button
+                      onClick={() => setPairingMode("text")}
+                      className="border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 py-3.5 px-4 rounded-xl font-bold text-xs uppercase tracking-wider transition-all flex flex-col items-center justify-center gap-2 cursor-pointer shadow-sm hover:shadow text-center"
+                    >
+                      <Laptop className="w-5 h-5 mx-auto" />
+                      <span className="font-semibold text-slate-800 block mt-1">Connect by Text Code</span>
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
 
-              <button
-                onClick={stopScanner}
-                className="w-full border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer"
-              >
-                Cancel Scan
-              </button>
-            </div>
+              {pairingMode === "qr" && (
+                <div className="space-y-4">
+                  {/* Camera scan block */}
+                  {!scanning ? (
+                    <div className="space-y-4">
+                      <p className="text-xs text-slate-500 text-center">
+                        Scan the QR code shown on your laptop screen.
+                      </p>
+                      <button
+                        onClick={startScanner}
+                        className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-bold text-xs uppercase tracking-wider transition-colors flex items-center justify-center gap-2 cursor-pointer border-0"
+                      >
+                        <Camera className="w-4 h-4" />
+                        Start Scanner
+                      </button>
+                      <button
+                        onClick={() => setPairingMode("none")}
+                        className="w-full border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer"
+                      >
+                        Go Back
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="relative w-full aspect-video rounded-xl overflow-hidden border border-slate-200 bg-black flex items-center justify-center">
+                        <video
+                          ref={videoRef}
+                          className="w-full h-full object-cover animate-fade-in"
+                        />
+                        <canvas ref={canvasRef} className="hidden" />
+                        <div className="absolute inset-0 border-2 border-dashed border-blue-500/50 m-6 rounded-lg pointer-events-none animate-pulse flex items-center justify-center">
+                          <div className="w-48 h-0.5 bg-blue-500 animate-bounce opacity-85"></div>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={stopScanner}
+                        className="w-full border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer"
+                      >
+                        Cancel Scan
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {pairingMode === "text" && (
+                <form onSubmit={handleValidate} className="space-y-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block text-center">
+                      Enter 6-Digit Code
+                    </label>
+                    <input
+                      type="text"
+                      maxLength={6}
+                      value={pairingCode}
+                      onChange={(e) => setPairingCode(e.target.value.replace(/\D/g, ""))}
+                      placeholder="123456"
+                      className="w-full border border-slate-200 bg-slate-50 rounded-xl px-4 py-3 text-center text-xl font-bold tracking-widest text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all font-mono"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPairingMode("none");
+                        setPairingCode("");
+                      }}
+                      className="border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 py-3 rounded-xl font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer"
+                    >
+                      Go Back
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={pairingCode.length !== 6}
+                      className="bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-bold text-xs uppercase tracking-wider transition-colors flex items-center justify-center cursor-pointer disabled:opacity-50 border-0"
+                    >
+                      Pair Laptop
+                    </button>
+                  </div>
+                </form>
+              )}
+            </>
           )}
 
           {validationResult && !isValidating && (
