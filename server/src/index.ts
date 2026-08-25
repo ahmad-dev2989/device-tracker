@@ -341,6 +341,329 @@ app.post("/api/devices/heartbeat", authenticateToken, (req: AuthRequest, res: Re
   }
 });
 
+// 9. POST /api/pairings/request
+app.post("/api/pairings/request", authenticateToken, (req: AuthRequest, res: Response) => {
+  const initiatingDeviceId = req.deviceId!;
+  const pairingCode = Math.floor(100000 + Math.random() * 900000).toString(); // 6 digits
+  const pairingSecretHash = hashToken(pairingCode);
+  const requestId = crypto.randomUUID();
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + 60 * 1000).toISOString(); // 60 seconds lifetime
+  const createdAt = now.toISOString();
+
+  try {
+    db.prepare(`
+      INSERT INTO pairing_requests (id, initiatingDeviceId, pairingSecretHash, expiresAt, status, createdAt)
+      VALUES (?, ?, ?, ?, 'PENDING', ?)
+    `).run(requestId, initiatingDeviceId, pairingSecretHash, expiresAt, createdAt);
+
+    console.log(`[Security Log] Pairing request created: ${requestId} for device: ${initiatingDeviceId}`);
+    res.status(201).json({
+      requestId,
+      pairingCode,
+      expiresAt,
+      expiresIn: 60,
+    });
+  } catch (err) {
+    console.error("[Database Error] Pairing request creation failed:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// 10. POST /api/pairings/validate
+app.post("/api/pairings/validate", authenticateToken, (req: AuthRequest, res: Response) => {
+  const { requestId, pairingCode } = req.body;
+
+  if (!pairingCode) {
+    res.status(400).json({ error: "Missing pairingCode" });
+    return;
+  }
+
+  try {
+    const hashedCode = hashToken(pairingCode);
+    let request: any;
+
+    if (requestId) {
+      request = db.prepare("SELECT * FROM pairing_requests WHERE id = ?").get(requestId);
+    } else {
+      // Lookup by pairingSecretHash alone
+      request = db.prepare("SELECT * FROM pairing_requests WHERE pairingSecretHash = ? AND status = 'PENDING'").get(hashedCode);
+    }
+
+    if (!request) {
+      res.status(404).json({ error: "Pairing request not found" });
+      return;
+    }
+
+    if (request.status !== "PENDING") {
+      res.status(400).json({ error: `Pairing request has status: ${request.status}` });
+      return;
+    }
+
+    const now = new Date();
+    if (now > new Date(request.expiresAt)) {
+      db.prepare("UPDATE pairing_requests SET status = 'EXPIRED' WHERE id = ?").run(request.id);
+      res.status(400).json({ error: "Pairing request expired" });
+      return;
+    }
+
+    if (request.pairingSecretHash !== hashedCode) {
+      res.status(401).json({ error: "Invalid pairing code" });
+      return;
+    }
+
+    // Retrieve initiating device metadata
+    const device = db.prepare("SELECT id, name, platform, deviceType FROM devices WHERE id = ?").get(request.initiatingDeviceId) as any;
+    if (!device) {
+      res.status(404).json({ error: "Initiating device not found" });
+      return;
+    }
+
+    res.json({
+      requestId: request.id,
+      status: "PENDING",
+      expiresAt: request.expiresAt,
+      device: {
+        id: device.id,
+        name: device.name,
+        platform: device.platform,
+        deviceType: device.deviceType,
+      },
+    });
+  } catch (err) {
+    console.error("[Database Error] Pairing validation failed:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// 11. POST /api/pairings/approve
+app.post("/api/pairings/approve", authenticateToken, (req: AuthRequest, res: Response) => {
+  const { requestId, pairingCode } = req.body;
+  const approvingDeviceId = req.deviceId!;
+
+  if (!pairingCode) {
+    res.status(400).json({ error: "Missing pairingCode" });
+    return;
+  }
+
+  try {
+    const hashedCode = hashToken(pairingCode);
+    let request: any;
+
+    if (requestId) {
+      request = db.prepare("SELECT * FROM pairing_requests WHERE id = ?").get(requestId);
+    } else {
+      request = db.prepare("SELECT * FROM pairing_requests WHERE pairingSecretHash = ? AND status = 'PENDING'").get(hashedCode);
+    }
+
+    if (!request) {
+      res.status(404).json({ error: "Pairing request not found" });
+      return;
+    }
+
+    if (request.status !== "PENDING") {
+      res.status(400).json({ error: `Pairing request is already ${request.status}` });
+      return;
+    }
+
+    const now = new Date();
+    if (now > new Date(request.expiresAt)) {
+      db.prepare("UPDATE pairing_requests SET status = 'EXPIRED' WHERE id = ?").run(request.id);
+      res.status(400).json({ error: "Pairing request expired" });
+      return;
+    }
+
+    if (request.pairingSecretHash !== hashedCode) {
+      res.status(401).json({ error: "Invalid pairing code" });
+      return;
+    }
+
+    const initiatingDeviceId = request.initiatingDeviceId;
+    if (initiatingDeviceId === approvingDeviceId) {
+      res.status(400).json({ error: "Cannot pair a device with itself" });
+      return;
+    }
+
+    // Sort to enforce database unique index ordering
+    const [deviceA, deviceB] = [initiatingDeviceId, approvingDeviceId].sort();
+
+    // Check if active pairing already exists
+    const existing = db.prepare("SELECT id FROM pairings WHERE deviceA = ? AND deviceB = ? AND status = 'ACTIVE'").get(deviceA, deviceB);
+    if (existing) {
+      res.status(409).json({ error: "These devices are already paired" });
+      return;
+    }
+
+    // Get the initiating device to retrieve its userId
+    const initDevice = db.prepare("SELECT userId FROM devices WHERE id = ?").get(initiatingDeviceId) as { userId: string } | undefined;
+    if (!initDevice) {
+      res.status(404).json({ error: "Initiating device not found" });
+      return;
+    }
+
+    const targetUserId = initDevice.userId;
+    const nowIso = now.toISOString();
+
+    // Update target device's userId to match initiator so they are under the same account/user
+    db.prepare("UPDATE devices SET userId = ?, updatedAt = ? WHERE id = ?").run(targetUserId, nowIso, approvingDeviceId);
+
+    // Consume the request
+    db.prepare("UPDATE pairing_requests SET status = 'CONSUMED', consumedAt = ? WHERE id = ?").run(nowIso, request.id);
+
+    // Create the active pairing
+    const pairingId = crypto.randomUUID();
+    db.prepare(`
+      INSERT INTO pairings (id, deviceA, deviceB, status, createdAt, updatedAt)
+      VALUES (?, ?, ?, 'ACTIVE', ?, ?)
+    `).run(pairingId, deviceA, deviceB, nowIso, nowIso);
+
+    console.log(`[Security Log] Pairing approved. ID: ${pairingId} between ${initiatingDeviceId} and ${approvingDeviceId}`);
+    res.json({ success: true, pairingId });
+  } catch (err) {
+    console.error("[Database Error] Pairing approval failed:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// 12. POST /api/pairings/cancel
+app.post("/api/pairings/cancel", authenticateToken, (req: AuthRequest, res: Response) => {
+  const { requestId } = req.body;
+  if (!requestId) {
+    res.status(400).json({ error: "Missing requestId" });
+    return;
+  }
+
+  try {
+    const request = db.prepare("SELECT * FROM pairing_requests WHERE id = ?").get(requestId) as any;
+    if (!request) {
+      res.status(404).json({ error: "Pairing request not found" });
+      return;
+    }
+
+    if (request.initiatingDeviceId !== req.deviceId) {
+      res.status(403).json({ error: "Forbidden: You are not the initiator of this request" });
+      return;
+    }
+
+    db.prepare("UPDATE pairing_requests SET status = 'CANCELLED' WHERE id = ?").run(requestId);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// 13. GET /api/pairings/status/:requestId
+app.get("/api/pairings/status/:requestId", authenticateToken, (req: AuthRequest, res: Response) => {
+  const { requestId } = req.params;
+
+  try {
+    const request = db.prepare("SELECT * FROM pairing_requests WHERE id = ?").get(requestId) as any;
+    if (!request) {
+      res.status(404).json({ error: "Pairing request not found" });
+      return;
+    }
+
+    const now = new Date();
+    if (request.status === "PENDING" && now > new Date(request.expiresAt)) {
+      db.prepare("UPDATE pairing_requests SET status = 'EXPIRED' WHERE id = ?").run(requestId);
+      request.status = "EXPIRED";
+    }
+
+    // If consumed, find the pairing and return the paired device details
+    let pairedDevice = null;
+    if (request.status === "CONSUMED") {
+      const activePairing = db.prepare(`
+        SELECT id, deviceA, deviceB FROM pairings 
+        WHERE (deviceA = ? OR deviceB = ?) AND status = 'ACTIVE'
+      `).get(request.initiatingDeviceId, request.initiatingDeviceId) as any;
+
+      if (activePairing) {
+        const otherDeviceId = activePairing.deviceA === request.initiatingDeviceId ? activePairing.deviceB : activePairing.deviceA;
+        const dev = db.prepare("SELECT id, name, platform, deviceType, status, lastSeenAt FROM devices WHERE id = ?").get(otherDeviceId) as any;
+        if (dev) {
+          pairedDevice = dev;
+        }
+      }
+    }
+
+    res.json({
+      requestId: request.id,
+      status: request.status,
+      pairedDevice,
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// 14. POST /api/pairings/unpair
+app.post("/api/pairings/unpair", authenticateToken, (req: AuthRequest, res: Response) => {
+  const callerDeviceId = req.deviceId!;
+  const now = new Date().toISOString();
+
+  try {
+    // Find active pairings involving this device
+    const active = db.prepare(`
+      SELECT id FROM pairings 
+      WHERE (deviceA = ? OR deviceB = ?) AND status = 'ACTIVE'
+    `).all(callerDeviceId, callerDeviceId) as { id: string }[];
+
+    if (active.length === 0) {
+      res.status(404).json({ error: "No active pairing found" });
+      return;
+    }
+
+    for (const pairing of active) {
+      db.prepare("UPDATE pairings SET status = 'REVOKED', updatedAt = ? WHERE id = ?").run(now, pairing.id);
+      console.log(`[Security Log] Pairing revoked: ${pairing.id} by device: ${callerDeviceId}`);
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// 15. GET /api/pairings/active
+app.get("/api/pairings/active", authenticateToken, (req: AuthRequest, res: Response) => {
+  const callerDeviceId = req.deviceId!;
+
+  try {
+    const activePairing = db.prepare(`
+      SELECT id, deviceA, deviceB FROM pairings 
+      WHERE (deviceA = ? OR deviceB = ?) AND status = 'ACTIVE'
+    `).get(callerDeviceId, callerDeviceId) as any;
+
+    if (!activePairing) {
+      res.json({ paired: false });
+      return;
+    }
+
+    const otherDeviceId = activePairing.deviceA === callerDeviceId ? activePairing.deviceB : activePairing.deviceA;
+    const dev = db.prepare("SELECT id, name, platform, deviceType, status, lastSeenAt FROM devices WHERE id = ?").get(otherDeviceId) as any;
+
+    if (!dev) {
+      res.json({ paired: false });
+      return;
+    }
+
+    res.json({
+      paired: true,
+      pairingId: activePairing.id,
+      device: {
+        id: dev.id,
+        name: dev.name,
+        platform: dev.platform,
+        deviceType: dev.deviceType,
+        status: dev.status,
+        lastSeenAt: dev.lastSeenAt,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 /**
  * ----------------------------------------------------
  * WEBSOCKET SERVER FOUNDATION (REAL-TIME COMMUNICATION)

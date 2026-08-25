@@ -76,5 +76,24 @@ export function initializeSchema() {
     );
   `);
 
+  // Pairing requests table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS pairing_requests (
+      id TEXT PRIMARY KEY,
+      initiatingDeviceId TEXT NOT NULL,
+      pairingSecretHash TEXT NOT NULL,
+      expiresAt TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('PENDING', 'APPROVED', 'EXPIRED', 'CANCELLED', 'CONSUMED')),
+      createdAt TEXT NOT NULL,
+      consumedAt TEXT,
+      FOREIGN KEY (initiatingDeviceId) REFERENCES devices(id) ON DELETE CASCADE
+    );
+  `);
+
+  // Index to prevent duplicate active pairings between same two devices
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_active_pairings ON pairings (deviceA, deviceB) WHERE status = 'ACTIVE';
+  `);
+
   console.log("[Database] Schema check and migrations completed.");
 }

@@ -5,14 +5,16 @@ import { MobileDashboard } from "./views/MobileDashboard";
 import { EmergencyLockView } from "./views/EmergencyLockView";
 import { useUpdateChecker } from "./hooks/useUpdateChecker";
 import { getAppPlatform } from "./utils/platform";
+import { secureStore } from "./utils/secureStore";
+import { api, getApiBaseUrl } from "./utils/api";
+import { generateDeviceKeyPair, signChallenge } from "./utils/crypto";
 
 // Icons
 import {
   Volume2,
   Power,
   X,
-  Smartphone,
-  Download
+  Smartphone
 } from "lucide-react";
 
 interface LogMessage {
@@ -22,16 +24,18 @@ interface LogMessage {
 }
 
 const PRE_SEEDED_LOGS: LogMessage[] = [
-  { timestamp: "14:02:11.004Z", type: "SYS", message: "Guardian Client pairing channel open." },
-  { timestamp: "14:02:11.230Z", type: "SYS", message: "Mutual connection handshake successful with node SG-MOB-442 (Nexus-9)." },
-  { timestamp: "14:02:12.115Z", type: "LOC", message: "LAT: 37.7749 N, LON: -122.4194 W (GPS Triangulation - Acc: 4.2m)" },
-  { timestamp: "14:02:45.302Z", type: "NET", message: "Secondary link established via BLE Mesh network. 3 nearby relay nodes visible." },
-  { timestamp: "14:03:01.881Z", type: "SYS", message: "Continuous heartbeat verify. Cryptographic link PASS (Curve25519)." },
+  { timestamp: new Date().toISOString().split("T")[1].substring(0, 12) + "Z", type: "SYS", message: "OmniRecover console shell initialized." },
 ];
 
 function App() {
   // Platform Detection
   const [platform, setPlatform] = useState<"desktop" | "mobile">(getAppPlatform());
+
+  // Backend Connection and Identity State
+  const [connectionStatus, setConnectionStatus] = useState<"Connecting" | "Online" | "Offline" | "AuthError" | "RegError">("Connecting");
+  const [deviceId, setDeviceId] = useState<string | null>(null);
+  const [reconnectAttempts, setReconnectAttempts] = useState<number>(0);
+  const [ws, setWs] = useState<WebSocket | null>(null);
 
   useEffect(() => {
     const handleResize = () => {
@@ -40,6 +44,211 @@ function App() {
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
+
+  // Pairing State
+  const [pairedDevice, setPairedDevice] = useState<any | null>(null);
+  const [pairingRequest, setPairingRequest] = useState<any | null>(null);
+
+  const checkActivePairing = async () => {
+    try {
+      const res = await api.getActivePairing();
+      if (res.paired) {
+        setPairedDevice(res.device);
+      } else {
+        setPairedDevice(null);
+      }
+    } catch (e) {
+      console.warn("Failed to check active pairing:", e);
+    }
+  };
+
+  // Backend Initialization
+  const initBackendSession = async () => {
+    setConnectionStatus("Connecting");
+    try {
+      let storedDeviceId = await secureStore.get("deviceId");
+      let storedPrivateKeyStr = await secureStore.get("privateKey");
+      let privateKeyJwk: any = null;
+
+      let appVersion = "1.0.2";
+      try {
+        if (platform === "desktop") {
+          const { getVersion } = await import("@tauri-apps/api/app");
+          appVersion = await getVersion();
+        } else {
+          const { App } = await import("@capacitor/app");
+          const info = await App.getInfo();
+          appVersion = info.version;
+        }
+      } catch (err) {
+        console.warn("Could not retrieve native version:", err);
+      }
+
+      if (!storedDeviceId || !storedPrivateKeyStr) {
+        addLog("SYS", "Generating fresh device identity...");
+        const newId = window.crypto.randomUUID();
+        const { publicKeyJwk, privateKeyJwk: generatedPrivateKey } = await generateDeviceKeyPair();
+
+        const deviceName = platform === "desktop" ? "Tauri Laptop Client" : "Android Mobile Client";
+        const platformName = platform === "desktop" ? "Desktop" : "Android";
+
+        addLog("SYS", "Registering device identity with backend...");
+        const regRes = await api.registerDevice({
+          id: newId,
+          publicKey: JSON.stringify(publicKeyJwk),
+          deviceType: platform === "desktop" ? "LAPTOP" : "MOBILE",
+          name: deviceName,
+          platform: platformName,
+          appVersion,
+        });
+
+        // Store identity in secure key vault
+        await secureStore.set("deviceId", newId);
+        await secureStore.set("userId", regRes.userId);
+        await secureStore.set("privateKey", JSON.stringify(generatedPrivateKey));
+        await secureStore.set("publicKey", JSON.stringify(publicKeyJwk));
+        await secureStore.set("appVersion", appVersion);
+
+        storedDeviceId = newId;
+        privateKeyJwk = generatedPrivateKey;
+        addLog("SYS", "Device identity registered and stored securely.");
+      } else {
+        privateKeyJwk = JSON.parse(storedPrivateKeyStr);
+        addLog("SYS", `Secure device identity loaded: ${storedDeviceId.substring(0, 8)}...`);
+      }
+
+      setDeviceId(storedDeviceId);
+
+      // --- CRYPTOGRAPHIC AUTHENTICATION ---
+      addLog("SYS", "Requesting auth challenge...");
+      const challenge = await api.getChallenge(storedDeviceId);
+      
+      addLog("SYS", "Signing challenge with private key...");
+      const signature = await signChallenge(challenge, privateKeyJwk);
+
+      addLog("SYS", "Submitting signature to authenticate...");
+      const loginRes = await api.login(storedDeviceId, signature);
+
+      await secureStore.set("accessToken", loginRes.accessToken);
+      await secureStore.set("refreshToken", loginRes.refreshToken);
+      await secureStore.set("userId", loginRes.userId);
+
+      // Load active pairing if it exists
+      await checkActivePairing();
+
+      setConnectionStatus("Online");
+      addLog("SYS", "Mutual cryptographic authentication PASSED.");
+    } catch (err: any) {
+      console.error("[Backend Init Failed]", err);
+      
+      const isNetworkError = err.message?.includes("failed to fetch") || 
+                             err.message?.includes("fetch failed") || 
+                             err.message?.includes("Failed to fetch") ||
+                             err.message?.includes("NetworkError") ||
+                             err.message?.includes("TypeError");
+                             
+      if (isNetworkError) {
+        addLog("NET", "Backend server is offline or unreachable.");
+        setConnectionStatus("Offline");
+        // Retry connection with backoff
+        scheduleReconnect();
+      } else {
+        addLog("ERR", `Backend authentication error: ${err.message || err}`);
+        setConnectionStatus("AuthError");
+      }
+    }
+  };
+
+  const scheduleReconnect = () => {
+    // Exponential backoff starting at 5s, doubling up to 60s
+    const delay = Math.min(60000, 5000 * Math.pow(2, reconnectAttempts));
+    setReconnectAttempts((prev) => prev + 1);
+    console.log(`[API] Reconnection scheduled in ${delay}ms (attempt ${reconnectAttempts + 1})`);
+    setTimeout(() => {
+      initBackendSession();
+    }, delay);
+  };
+
+  // Run initial setup on boot
+  useEffect(() => {
+    initBackendSession();
+  }, []);
+
+  // Heartbeat Scheduler
+  useEffect(() => {
+    if (connectionStatus !== "Online") return;
+
+    // Reset reconnect attempts on successful connection
+    setReconnectAttempts(0);
+
+    const interval = setInterval(async () => {
+      try {
+        let appVersion = "1.0.2";
+        const storedVersion = await secureStore.get("appVersion");
+        if (storedVersion) appVersion = storedVersion;
+
+        await api.sendHeartbeat(appVersion);
+        console.log("[Heartbeat] Active heartbeat sent.");
+        
+        // Refresh pairing status
+        await checkActivePairing();
+      } catch (err) {
+        console.warn("[Heartbeat] Heartbeat failed, connection lost:", err);
+        addLog("NET", "Heartbeat lost, network offline.");
+        setConnectionStatus("Offline");
+        clearInterval(interval);
+        // Trigger reconnection
+        initBackendSession();
+      }
+    }, 15000); // Send heartbeat every 15 seconds
+
+    return () => clearInterval(interval);
+  }, [connectionStatus]);
+
+  // WebSocket Live Channel Connection
+  useEffect(() => {
+    if (connectionStatus !== "Online") {
+      if (ws) {
+        ws.close();
+        setWs(null);
+      }
+      return;
+    }
+
+    let activeWs: WebSocket | null = null;
+    const connectWs = async () => {
+      try {
+        const wsBaseUrl = getApiBaseUrl().replace(/^http/, "ws");
+        const token = await secureStore.get("accessToken");
+        if (!token) return;
+
+        activeWs = new WebSocket(`${wsBaseUrl}?token=${token}`);
+        setWs(activeWs);
+
+        activeWs.onopen = () => {
+          console.log("[WebSocket] Handshake successful, real-time channel ready.");
+          addLog("SYS", "Real-time bidirectional control channel established.");
+        };
+
+        activeWs.onmessage = (event) => {
+          console.log("[WebSocket] Event received:", event.data);
+          addLog("SYS", `Remote Event: ${event.data}`);
+        };
+
+        activeWs.onclose = () => {
+          console.log("[WebSocket] Connection closed.");
+        };
+      } catch (err) {
+        console.error("[WebSocket] Connection error:", err);
+      }
+    };
+
+    connectWs();
+
+    return () => {
+      if (activeWs) activeWs.close();
+    };
+  }, [connectionStatus]);
 
   // Auto Update Checker Hook
   const { updateAvailable, updateInfo, isUpdating, executeUpdate, dismissUpdate } = useUpdateChecker();
@@ -58,8 +267,8 @@ function App() {
   // Device status variables
   const [batteryLaptop, setBatteryLaptop] = useState<number>(100);
   const [batteryPhone, setBatteryPhone] = useState<number>(84);
-  const [laptopOnline] = useState<boolean>(true);
-  const [phoneOnline] = useState<boolean>(true);
+  const phoneOnline = pairedDevice ? pairedDevice.status === "ONLINE" : false;
+  const laptopOnline = pairedDevice ? pairedDevice.status === "ONLINE" : false;
 
   // Coordinates
   const laptopCoords = { lat: 37.7749, lng: -122.4194 };
@@ -117,11 +326,18 @@ function App() {
   };
 
   // Unpair Action
-  const handleUnpairDevice = () => {
-    const confirm = window.confirm("Are you sure you want to unpair the Nexus-9 mobile device?");
+  const handleUnpairDevice = async () => {
+    const confirm = window.confirm(`Are you sure you want to unpair the paired ${platform === "desktop" ? "mobile" : "laptop"} device?`);
     if (confirm) {
-      alert("Device unpaired successfully.");
-      addLog("SYS", "Nexus-9 Mobile node unpaired.");
+      try {
+        await api.unpairDevice();
+        setPairedDevice(null);
+        addLog("SYS", "Device relationship unpaired successfully.");
+        alert("Device unpaired successfully.");
+      } catch (e: any) {
+        console.error("Failed to unpair:", e);
+        alert("Failed to unpair: " + (e.message || e));
+      }
     }
   };
 
@@ -145,7 +361,7 @@ function App() {
   return (
     <div className="h-screen w-screen flex flex-col font-sans relative antialiased overflow-hidden bg-slate-50">
       {/* 1. Custom Desktop Frameless Titlebar */}
-      {platform === "desktop" && <Titlebar />}
+      {platform === "desktop" && <Titlebar connectionStatus={connectionStatus} />}
 
       {/* 2. Auto Update Notification Banner */}
       {updateAvailable && updateInfo && (
@@ -187,14 +403,6 @@ function App() {
             >
               Add Icon
             </button>
-            <a
-              href="https://github.com/ahmad-dev2989/device-tracker/releases/download/v1.0.0/app-debug.apk"
-              download
-              className="bg-slate-800 text-white font-bold px-2.5 py-1 rounded hover:bg-slate-900 transition-colors text-[9px] text-center inline-flex items-center gap-0.5"
-            >
-              <Download className="w-2.5 h-2.5" />
-              APK
-            </a>
             <button
               onClick={() => setShowInstallBtn(false)}
               className="text-slate-400 hover:text-slate-600 p-1 transition-colors cursor-pointer border-0 bg-transparent"
@@ -259,6 +467,10 @@ function App() {
             onTriggerAlarm={handleTriggerAlarm}
             onRemoteLock={() => setIsLocked(true)}
             onUnpairDevice={handleUnpairDevice}
+            connectionStatus={connectionStatus}
+            pairedDevice={pairedDevice}
+            pairingRequest={pairingRequest}
+            setPairingRequest={setPairingRequest}
           />
         ) : (
           <MobileDashboard
@@ -273,6 +485,10 @@ function App() {
             onRemoteLock={() => setIsLocked(true)}
             deceptionActive={deceptionActive}
             onToggleDeception={handleToggleDeception}
+            connectionStatus={connectionStatus}
+            pairedDevice={pairedDevice}
+            onUnpairDevice={handleUnpairDevice}
+            checkActivePairing={checkActivePairing}
           />
         )}
       </div>

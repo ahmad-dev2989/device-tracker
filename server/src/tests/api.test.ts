@@ -1,8 +1,4 @@
-// Set test environments before importing application modules
-process.env.DATABASE_PATH = ":memory:";
-process.env.JWT_SECRET = "test-secret-key-for-omnirecover-unit-tests";
-process.env.PORT = "3005";
-process.env.HEARTBEAT_TIMEOUT_MS = "100"; // Short timeout for testing offline status
+import "./setup.js";
 
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert";
@@ -276,6 +272,132 @@ describe("OmniRecover Backend API Tests", () => {
 
       const dev = db.prepare("SELECT status FROM devices WHERE id = ?").get(deviceId) as any;
       assert.strictEqual(dev.status, "OFFLINE");
+    });
+  });
+
+  describe("Device Pairing API Tests", () => {
+    let laptopToken: string;
+    let mobileToken: string;
+    let laptopId: string;
+    let mobileId: string;
+    let requestId: string;
+    let pairingCode: string;
+
+    before(async () => {
+      // Create and authenticate Laptop
+      const keysA = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
+      const pubA = JSON.stringify(keysA.publicKey.export({ format: "jwk" }));
+      laptopId = crypto.randomUUID();
+
+      await makeRequest("/api/devices/register", "POST", {
+        id: laptopId,
+        publicKey: pubA,
+        deviceType: "LAPTOP",
+        name: "Pairing Laptop",
+        platform: "Windows",
+        appVersion: "1.0.2",
+      });
+
+      const challA = await makeRequest("/api/auth/challenge", "POST", { deviceId: laptopId });
+      const sigA = crypto.sign("sha256", Buffer.from(challA.data.challenge), {
+        key: keysA.privateKey,
+        dsaEncoding: "ieee-p1363",
+      }).toString("hex");
+
+      const logA = await makeRequest("/api/auth/login", "POST", { deviceId: laptopId, signature: sigA });
+      laptopToken = logA.data.accessToken;
+
+      // Create and authenticate Mobile
+      const keysB = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
+      const pubB = JSON.stringify(keysB.publicKey.export({ format: "jwk" }));
+      mobileId = crypto.randomUUID();
+
+      await makeRequest("/api/devices/register", "POST", {
+        id: mobileId,
+        publicKey: pubB,
+        deviceType: "MOBILE",
+        name: "Pairing Mobile",
+        platform: "Android",
+        appVersion: "1.0.2",
+      });
+
+      const challB = await makeRequest("/api/auth/challenge", "POST", { deviceId: mobileId });
+      const sigB = crypto.sign("sha256", Buffer.from(challB.data.challenge), {
+        key: keysB.privateKey,
+        dsaEncoding: "ieee-p1363",
+      }).toString("hex");
+
+      const logB = await makeRequest("/api/auth/login", "POST", { deviceId: mobileId, signature: sigB });
+      mobileToken = logB.data.accessToken;
+    });
+
+    test("should successfully create a pairing request", async () => {
+      const res = await makeRequest("/api/pairings/request", "POST", undefined, laptopToken);
+      assert.strictEqual(res.status, 201);
+      assert.ok(res.data.requestId);
+      assert.ok(res.data.pairingCode);
+      assert.strictEqual(res.data.pairingCode.length, 6);
+
+      requestId = res.data.requestId;
+      pairingCode = res.data.pairingCode;
+    });
+
+    test("should fail validation with invalid pairing code", async () => {
+      const res = await makeRequest("/api/pairings/validate", "POST", {
+        requestId,
+        pairingCode: "000000",
+      }, mobileToken);
+      assert.strictEqual(res.status, 401);
+    });
+
+    test("should validate pairing request with correct code", async () => {
+      const res = await makeRequest("/api/pairings/validate", "POST", {
+        requestId,
+        pairingCode,
+      }, mobileToken);
+      assert.strictEqual(res.status, 200);
+      assert.strictEqual(res.data.device.id, laptopId);
+      assert.strictEqual(res.data.device.name, "Pairing Laptop");
+    });
+
+    test("should approve pairing and link devices under same userId", async () => {
+      const res = await makeRequest("/api/pairings/approve", "POST", {
+        requestId,
+        pairingCode,
+      }, mobileToken);
+      assert.strictEqual(res.status, 200);
+      assert.ok(res.data.success);
+
+      // Verify they now have active pairing and same userId
+      const activeRes = await makeRequest("/api/pairings/active", "GET", undefined, laptopToken);
+      assert.strictEqual(activeRes.status, 200);
+      assert.strictEqual(activeRes.data.paired, true);
+      assert.strictEqual(activeRes.data.device.id, mobileId);
+
+      // Verify request state is CONSUMED
+      const statusRes = await makeRequest(`/api/pairings/status/${requestId}`, "GET", undefined, laptopToken);
+      assert.strictEqual(statusRes.status, 200);
+      assert.strictEqual(statusRes.data.status, "CONSUMED");
+    });
+
+    test("should reject duplicate pairing attempts", async () => {
+      // Generate new pairing request
+      const reqRes = await makeRequest("/api/pairings/request", "POST", undefined, laptopToken);
+      const res = await makeRequest("/api/pairings/approve", "POST", {
+        requestId: reqRes.data.requestId,
+        pairingCode: reqRes.data.pairingCode,
+      }, mobileToken);
+      assert.strictEqual(res.status, 409); // conflict: already paired
+    });
+
+    test("should revoke pairing on unpair", async () => {
+      const res = await makeRequest("/api/pairings/unpair", "POST", undefined, laptopToken);
+      assert.strictEqual(res.status, 200);
+
+      // Verify no active pairing
+      const activeRes = await makeRequest("/api/pairings/active", "GET", undefined, laptopToken);
+      assert.strictEqual(activeRes.status, 200);
+      assert.strictEqual(activeRes.data.paired, false);
     });
   });
 });
