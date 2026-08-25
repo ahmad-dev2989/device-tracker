@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import { RadarMap } from "../components/RadarMap";
-import { Laptop, Battery, Wifi, Clock, Power, Volume2, RefreshCw, Lock, ChevronUp, ChevronDown } from "lucide-react";
+import { Laptop, Battery, Wifi, Clock, Power, Volume2, RefreshCw, Lock, ChevronUp, ChevronDown, Camera } from "lucide-react";
 import { api } from "../utils/api";
+import jsQR from "jsqr";
 
 interface MobileDashboardProps {
   laptopOnline: boolean;
@@ -46,21 +47,89 @@ export const MobileDashboard: React.FC<MobileDashboardProps> = ({
   const [validationResult, setValidationResult] = useState<any | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const handleValidate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!pairingCode || pairingCode.trim().length !== 6) {
-      setError("Please enter a valid 6-digit code");
+  // QR Scanner States & Refs
+  const [scanning, setScanning] = useState(false);
+  const videoRef = React.useRef<HTMLVideoElement | null>(null);
+  const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
+  const streamRef = React.useRef<MediaStream | null>(null);
+
+  const startScanner = async () => {
+    setError(null);
+    setScanning(true);
+    setValidationResult(null);
+    try {
+      const mediaStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" }
+      });
+      streamRef.current = mediaStream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = mediaStream;
+        videoRef.current.setAttribute("playsinline", "true");
+        videoRef.current.play();
+        requestAnimationFrame(tick);
+      }
+    } catch (err: any) {
+      console.error("Camera access failed:", err);
+      setError("Failed to access camera. Please verify camera permissions.");
+      setScanning(false);
+    }
+  };
+
+  const stopScanner = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+    setScanning(false);
+  };
+
+  const tick = async () => {
+    if (!videoRef.current || !streamRef.current) {
       return;
     }
-    setError(null);
-    setIsValidating(true);
-    try {
-      const res = await api.validatePairingRequest(null, pairingCode.trim());
-      setValidationResult(res);
-    } catch (err: any) {
-      setError(err.message || "Failed to validate pairing code");
-    } finally {
-      setIsValidating(false);
+
+    const video = videoRef.current;
+    if (video.readyState === video.HAVE_CURRENT_DATA) {
+      const canvas = canvasRef.current;
+      if (canvas) {
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const decoded = jsQR(imageData.data, imageData.width, imageData.height);
+
+          if (decoded && decoded.data) {
+            try {
+              const parsed = JSON.parse(decoded.data);
+              if (parsed.id && parsed.code) {
+                // Stop camera stream immediately
+                if (streamRef.current) {
+                  streamRef.current.getTracks().forEach((track) => track.stop());
+                  streamRef.current = null;
+                }
+                setScanning(false);
+                setIsValidating(true);
+                
+                // Automatically validate on backend
+                const res = await api.validatePairingRequest(parsed.id, parsed.code);
+                setPairingCode(parsed.code);
+                setValidationResult(res);
+                setIsValidating(false);
+                return;
+              }
+            } catch (e) {
+              // Ignore non-JSON decoded values
+            }
+          }
+        }
+      }
+    }
+
+    if (streamRef.current) {
+      requestAnimationFrame(tick);
     }
   };
 
@@ -93,7 +162,7 @@ export const MobileDashboard: React.FC<MobileDashboardProps> = ({
           <div className="text-center space-y-2">
             <h3 className="text-lg font-bold text-slate-800">Pair Laptop</h3>
             <p className="text-xs text-slate-500">
-              Link this phone to your laptop to remotely lock, track, and deter theft.
+              Scan the QR code shown on your laptop dashboard to securely link this phone.
             </p>
           </div>
 
@@ -105,31 +174,46 @@ export const MobileDashboard: React.FC<MobileDashboardProps> = ({
             </div>
           )}
 
-          {!validationResult ? (
-            <form onSubmit={handleValidate} className="space-y-4">
-              <div className="space-y-1.5">
-                <label className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
-                  Enter 6-Digit Code
-                </label>
-                <input
-                  type="text"
-                  maxLength={6}
-                  value={pairingCode}
-                  onChange={(e) => setPairingCode(e.target.value.replace(/\D/g, ""))}
-                  placeholder="123456"
-                  className="w-full border border-slate-200 bg-slate-50 rounded-xl px-4 py-3 text-center text-xl font-bold tracking-widest text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all font-mono"
+          {isValidating && (
+            <div className="text-center py-6 space-y-3 font-semibold text-xs text-slate-500">
+              <RefreshCw className="w-6 h-6 animate-spin mx-auto text-blue-600" />
+              <p>Validating QR Pairing Link...</p>
+            </div>
+          )}
+
+          {!isValidating && !scanning && !validationResult && (
+            <button
+              onClick={startScanner}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-colors flex items-center justify-center gap-2 cursor-pointer border-0"
+            >
+              <Camera className="w-4 h-4" />
+              Scan Laptop QR
+            </button>
+          )}
+
+          {scanning && (
+            <div className="space-y-4">
+              <div className="relative w-full aspect-video rounded-xl overflow-hidden border border-slate-200 bg-black flex items-center justify-center">
+                <video
+                  ref={videoRef}
+                  className="w-full h-full object-cover animate-fade-in"
                 />
+                <canvas ref={canvasRef} className="hidden" />
+                <div className="absolute inset-0 border-2 border-dashed border-blue-500/50 m-6 rounded-lg pointer-events-none animate-pulse flex items-center justify-center">
+                  <div className="w-48 h-0.5 bg-blue-500 animate-bounce opacity-85"></div>
+                </div>
               </div>
 
               <button
-                type="submit"
-                disabled={isValidating || pairingCode.length !== 6}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-bold text-xs uppercase tracking-wider transition-colors flex items-center justify-center cursor-pointer disabled:opacity-50 border-0"
+                onClick={stopScanner}
+                className="w-full border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer"
               >
-                {isValidating ? "Validating..." : "Pair Laptop"}
+                Cancel Scan
               </button>
-            </form>
-          ) : (
+            </div>
+          )}
+
+          {validationResult && !isValidating && (
             <div className="space-y-5">
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 text-xs text-slate-600 space-y-2">
                 <span className="text-[9px] text-slate-400 uppercase tracking-wider font-bold block">Pairing Request From</span>
@@ -149,7 +233,7 @@ export const MobileDashboard: React.FC<MobileDashboardProps> = ({
                   disabled={isValidating}
                   className="bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer border-0"
                 >
-                  {isValidating ? "Linking..." : "Confirm Pair"}
+                  Confirm Pair
                 </button>
               </div>
             </div>

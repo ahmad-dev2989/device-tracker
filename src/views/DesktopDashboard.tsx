@@ -141,7 +141,7 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({
               </div>
             ) : (
               <div className="space-y-5 text-center py-2">
-                <p className="text-xs font-bold text-slate-700">Scan QR or enter code on mobile app</p>
+                <p className="text-xs font-bold text-slate-700">Scan QR with mobile app to pair</p>
                 
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 flex items-center justify-center">
                   <img
