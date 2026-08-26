@@ -1,5 +1,6 @@
 import { getAppPlatform } from "./platform";
 import { secureStore } from "./secureStore";
+import { Capacitor } from "@capacitor/core";
 
 // Configure default API endpoint
 let API_BASE_URL = "http://localhost:3000";
@@ -8,9 +9,13 @@ if (typeof window !== "undefined") {
   const customUrl = localStorage.getItem("OMNI_RECOVER_API_URL");
   if (customUrl) {
     API_BASE_URL = customUrl;
-  } else if (getAppPlatform() === "mobile") {
+  } else if (Capacitor.isNativePlatform()) {
     // 10.0.2.2 is the Android emulator's route back to host machine's localhost
     API_BASE_URL = "http://10.0.2.2:3000";
+  } else {
+    // Web browser environment: connect to the same host on port 3000
+    const hostname = window.location.hostname || "localhost";
+    API_BASE_URL = `http://${hostname}:3000`;
   }
 }
 
