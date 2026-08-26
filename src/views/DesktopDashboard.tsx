@@ -1,7 +1,7 @@
 import React from "react";
 import { RadarMap } from "../components/RadarMap";
 import { Smartphone, Battery, Wifi, Clock, Compass, Volume2, RefreshCw, Lock, Trash2 } from "lucide-react";
-import { api } from "../utils/api";
+import { api, getApiBaseUrl } from "../utils/api";
 
 interface DesktopDashboardProps {
   phoneOnline: boolean;
@@ -169,7 +169,18 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({
                   <div className="bg-white p-4 rounded-2xl border border-slate-200/60 shadow-sm flex items-center justify-center">
                     <img
                       src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(
-                        JSON.stringify({ id: pairingRequest.requestId, code: pairingRequest.pairingCode })
+                        JSON.stringify({ 
+                          id: pairingRequest.requestId, 
+                          code: pairingRequest.pairingCode,
+                          url: (() => {
+                            const apiBase = getApiBaseUrl();
+                            if (apiBase.includes("localhost") || apiBase.includes("127.0.0.1")) {
+                              const hostname = window.location.hostname || "localhost";
+                              return apiBase.replace("localhost", hostname).replace("127.0.0.1", hostname);
+                            }
+                            return apiBase;
+                          })()
+                        })
                       )}`}
                       alt="Pairing QR Code"
                       className="w-40 h-40 bg-white"

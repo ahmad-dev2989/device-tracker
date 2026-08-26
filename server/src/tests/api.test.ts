@@ -237,7 +237,7 @@ describe("OmniRecover Backend API Tests", () => {
 
     test("should update device status and lastSeenAt on heartbeat", async () => {
       const start = new Date().toISOString();
-      const res = await makeRequest("/api/devices/heartbeat", "POST", { appVersion: "1.0.5" }, token);
+      const res = await makeRequest("/api/devices/heartbeat", "POST", { appVersion: "1.0.6" }, token);
 
       assert.strictEqual(res.status, 200);
       assert.strictEqual(res.data.status, "ONLINE");
@@ -245,7 +245,7 @@ describe("OmniRecover Backend API Tests", () => {
       // Verify DB reflects update
       const dev = db.prepare("SELECT status, lastSeenAt, appVersion FROM devices WHERE id = ?").get(deviceId) as any;
       assert.strictEqual(dev.status, "ONLINE");
-      assert.strictEqual(dev.appVersion, "1.0.5");
+      assert.strictEqual(dev.appVersion, "1.0.6");
       assert.ok(dev.lastSeenAt >= start);
     });
 
@@ -295,7 +295,7 @@ describe("OmniRecover Backend API Tests", () => {
         deviceType: "LAPTOP",
         name: "Pairing Laptop",
         platform: "Windows",
-        appVersion: "1.0.5",
+        appVersion: "1.0.6",
       });
 
       const challA = await makeRequest("/api/auth/challenge", "POST", { deviceId: laptopId });
@@ -318,7 +318,7 @@ describe("OmniRecover Backend API Tests", () => {
         deviceType: "MOBILE",
         name: "Pairing Mobile",
         platform: "Android",
-        appVersion: "1.0.5",
+        appVersion: "1.0.6",
       });
 
       const challB = await makeRequest("/api/auth/challenge", "POST", { deviceId: mobileId });

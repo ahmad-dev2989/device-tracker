@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { RadarMap } from "../components/RadarMap";
 import { Laptop, Battery, Wifi, Clock, Power, Volume2, RefreshCw, Lock, ChevronUp, ChevronDown, Camera, Compass } from "lucide-react";
-import { api } from "../utils/api";
+import { api, setApiBaseUrl } from "../utils/api";
 import jsQR from "jsqr";
 
 interface MobileDashboardProps {
@@ -125,6 +125,12 @@ export const MobileDashboard: React.FC<MobileDashboardProps> = ({
                 }
                 setScanning(false);
                 setIsValidating(true);
+                
+                // If a server URL was encoded in the QR code, auto-configure it
+                if (parsed.url) {
+                  localStorage.setItem("OMNI_RECOVER_API_URL", parsed.url);
+                  setApiBaseUrl(parsed.url);
+                }
                 
                 // Automatically validate on backend
                 const res = await api.validatePairingRequest(parsed.id, parsed.code);
