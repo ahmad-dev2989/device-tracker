@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
 import { WebSocketServer, WebSocket } from "ws";
+import { Message } from "./types/message.js";
 import dotenv from "dotenv";
 import { db, initializeSchema } from "./db.js";
 import {
@@ -604,9 +605,9 @@ app.post("/api/pairings/unpair", authenticateToken, (req: AuthRequest, res: Resp
   try {
     // Find active pairings involving this device
     const active = db.prepare(`
-      SELECT id FROM pairings 
+      SELECT id, deviceA, deviceB FROM pairings 
       WHERE (deviceA = ? OR deviceB = ?) AND status = 'ACTIVE'
-    `).all(callerDeviceId, callerDeviceId) as { id: string }[];
+    `).all(callerDeviceId, callerDeviceId) as { id: string; deviceA: string; deviceB: string }[];
 
     if (active.length === 0) {
       res.status(404).json({ error: "No active pairing found" });
@@ -616,6 +617,39 @@ app.post("/api/pairings/unpair", authenticateToken, (req: AuthRequest, res: Resp
     for (const pairing of active) {
       db.prepare("UPDATE pairings SET status = 'REVOKED', updatedAt = ? WHERE id = ?").run(now, pairing.id);
       console.log(`[Security Log] Pairing revoked: ${pairing.id} by device: ${callerDeviceId}`);
+
+      // Close WebSockets of both paired devices
+      const wsA = activeConnections.get(pairing.deviceA);
+      if (wsA) {
+        try {
+          wsA.send(JSON.stringify({
+            type: "PAIRING_STATUS",
+            id: crypto.randomUUID(),
+            timestamp: new Date().toISOString(),
+            payload: { status: "REVOKED" }
+          }));
+          wsA.close(4003, "PAIRING_REVOKED");
+        } catch (e) {
+          console.warn("Failed to close socket A:", e);
+        }
+        activeConnections.delete(pairing.deviceA);
+      }
+
+      const wsB = activeConnections.get(pairing.deviceB);
+      if (wsB) {
+        try {
+          wsB.send(JSON.stringify({
+            type: "PAIRING_STATUS",
+            id: crypto.randomUUID(),
+            timestamp: new Date().toISOString(),
+            payload: { status: "REVOKED" }
+          }));
+          wsB.close(4003, "PAIRING_REVOKED");
+        } catch (e) {
+          console.warn("Failed to close socket B:", e);
+        }
+        activeConnections.delete(pairing.deviceB);
+      }
     }
 
     res.json({ success: true });
@@ -674,20 +708,142 @@ const wss = new WebSocketServer({ noServer: true });
 
 // Map to track active WS connections: deviceId -> WebSocket
 const activeConnections = new Map<string, WebSocket>();
+const messageIdCache = new Set<string>();
 
 wss.on("connection", (ws: WebSocket, request: http.IncomingMessage, claims: { deviceId: string; userId: string }) => {
   const deviceId = claims.deviceId;
+  
+  // Clean up obsolete/duplicate connections (Requirement 7)
+  const existingWs = activeConnections.get(deviceId);
+  if (existingWs) {
+    console.log(`[Security Log] Terminating obsolete duplicate connection for device: ${deviceId}`);
+    try {
+      existingWs.close(1000, "DUPLICATE_CONNECTION");
+    } catch (e) {
+      console.warn("Error closing duplicate WS:", e);
+    }
+    activeConnections.delete(deviceId);
+  }
+
   activeConnections.set(deviceId, ws);
   console.log(`[Security Log] WebSocket connected & authenticated for device: ${deviceId}`);
 
-  ws.on("message", (message: string) => {
-    // WebSocket communication foundation ready for future commands
-    console.log(`[WebSocket] Message received from ${deviceId}: ${message.toString()}`);
+  // Mark device online in database on websocket connection
+  const nowStr = new Date().toISOString();
+  db.prepare("UPDATE devices SET status = 'ONLINE', lastSeenAt = ?, updatedAt = ? WHERE id = ?").run(nowStr, nowStr, deviceId);
+
+  // Notify other device of connection (Requirement 2)
+  const pairing = db.prepare(`
+    SELECT deviceA, deviceB FROM pairings 
+    WHERE (deviceA = ? OR deviceB = ?) AND status = 'ACTIVE'
+  `).get(deviceId, deviceId) as { deviceA: string; deviceB: string } | undefined;
+
+  if (pairing) {
+    const partnerId = pairing.deviceA === deviceId ? pairing.deviceB : pairing.deviceA;
+    
+    // Tell this device if the partner is currently connected
+    const isPartnerConnected = activeConnections.has(partnerId);
+    ws.send(JSON.stringify({
+      type: "CONNECTION_STATUS",
+      id: crypto.randomUUID(),
+      timestamp: new Date().toISOString(),
+      payload: { partnerDeviceId: partnerId, status: isPartnerConnected ? "CONNECTED" : "DISCONNECTED" }
+    }));
+
+    // Notify partner that we are online
+    const partnerWs = activeConnections.get(partnerId);
+    if (partnerWs && partnerWs.readyState === WebSocket.OPEN) {
+      partnerWs.send(JSON.stringify({
+        type: "CONNECTION_STATUS",
+        id: crypto.randomUUID(),
+        timestamp: new Date().toISOString(),
+        payload: { partnerDeviceId: deviceId, status: "CONNECTED" }
+      }));
+    }
+  }
+
+  ws.on("message", (rawMessage: any) => {
+    try {
+      const messageStr = rawMessage.toString();
+      // Limit message size (Requirement 10)
+      if (messageStr.length > 10000) {
+        throw new Error("Message size exceeds limit");
+      }
+
+      const message = JSON.parse(messageStr) as Message;
+      
+      // Validate structure (Requirement 10)
+      if (!message.type || !message.id || !message.timestamp) {
+        throw new Error("Malformed message structure");
+      }
+
+      const validTypes = ["CONNECTION_STATUS", "DEVICE_STATUS", "PAIRING_STATUS", "ACK", "ERROR"];
+      if (!validTypes.includes(message.type)) {
+        throw new Error("Unknown message type");
+      }
+
+      // Validate active pairing and ownership (Requirement 6 & 10)
+      const currentPairing = db.prepare(`
+        SELECT deviceA, deviceB FROM pairings 
+        WHERE (deviceA = ? OR deviceB = ?) AND status = 'ACTIVE'
+      `).get(deviceId, deviceId) as { deviceA: string; deviceB: string } | undefined;
+
+      if (!currentPairing) {
+        throw new Error("Unauthorized: Device has no active pairing");
+      }
+
+      // Deduplicate (Requirement 10)
+      if (messageIdCache.has(message.id)) {
+        console.warn(`[WebSocket] Duplicate message ID rejected: ${message.id}`);
+        return;
+      }
+      messageIdCache.add(message.id);
+      setTimeout(() => messageIdCache.delete(message.id), 60000).unref();
+
+      // Route message to partner (Requirement 9 & 10)
+      const partnerId = currentPairing.deviceA === deviceId ? currentPairing.deviceB : currentPairing.deviceA;
+      const partnerWs = activeConnections.get(partnerId);
+      if (partnerWs && partnerWs.readyState === WebSocket.OPEN) {
+        partnerWs.send(JSON.stringify(message));
+      } else {
+        ws.send(JSON.stringify({
+          type: "ERROR",
+          id: crypto.randomUUID(),
+          timestamp: new Date().toISOString(),
+          payload: { error: "Paired device is offline", originalMessageId: message.id }
+        }));
+      }
+    } catch (err: any) {
+      console.warn(`[WebSocket] Validation failed for message from ${deviceId}: ${err.message}`);
+      ws.send(JSON.stringify({
+        type: "ERROR",
+        id: crypto.randomUUID(),
+        timestamp: new Date().toISOString(),
+        payload: { error: err.message }
+      }));
+    }
   });
 
-  ws.on("close", () => {
-    activeConnections.delete(deviceId);
+  ws.on("close", (code, reason) => {
+    // Only delete if it's the current active socket
+    if (activeConnections.get(deviceId) === ws) {
+      activeConnections.delete(deviceId);
+    }
     console.log(`[WebSocket] Connection closed for device: ${deviceId}`);
+
+    // Notify partner device of disconnection (Requirement 2)
+    if (pairing) {
+      const partnerId = pairing.deviceA === deviceId ? pairing.deviceB : pairing.deviceA;
+      const partnerWs = activeConnections.get(partnerId);
+      if (partnerWs && partnerWs.readyState === WebSocket.OPEN) {
+        partnerWs.send(JSON.stringify({
+          type: "CONNECTION_STATUS",
+          id: crypto.randomUUID(),
+          timestamp: new Date().toISOString(),
+          payload: { partnerDeviceId: deviceId, status: "DISCONNECTED" }
+        }));
+      }
+    }
   });
 });
 
@@ -704,6 +860,21 @@ server.on("upgrade", (request, socket, head) => {
 
   const claims = verifyAccessToken(token);
   if (!claims) {
+    socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+    socket.destroy();
+    return;
+  }
+
+  // Verify device belongs to user & is part of an active pairing (Requirement 6)
+  const device = db.prepare("SELECT id, userId FROM devices WHERE id = ?").get(claims.deviceId) as { id: string; userId: string } | undefined;
+  if (!device || device.userId !== claims.userId) {
+    socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+    socket.destroy();
+    return;
+  }
+
+  const pairing = db.prepare("SELECT id FROM pairings WHERE (deviceA = ? OR deviceB = ?) AND status = 'ACTIVE'").get(claims.deviceId, claims.deviceId);
+  if (!pairing) {
     socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
     socket.destroy();
     return;
@@ -741,11 +912,13 @@ setInterval(() => {
   } catch (err) {
     console.error("[Worker Error] Failed checking device heartbeats:", err);
   }
-}, 10000); // Check every 10 seconds
+}, 10000).unref(); // Check every 10 seconds
 
 // Start Server
-server.listen(PORT, () => {
-  console.log(`[Server] Running on port http://localhost:${PORT}`);
-});
+if (process.env.NODE_ENV !== "test") {
+  server.listen(PORT, () => {
+    console.log(`[Server] Running on port http://localhost:${PORT}`);
+  });
+}
 
 export { app, server };

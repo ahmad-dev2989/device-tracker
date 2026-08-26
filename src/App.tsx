@@ -8,6 +8,8 @@ import { getAppPlatform } from "./utils/platform";
 import { secureStore } from "./utils/secureStore";
 import { api, getApiBaseUrl } from "./utils/api";
 import { generateDeviceKeyPair, signChallenge } from "./utils/crypto";
+import { connectionManager } from "./utils/connectionManager";
+import type { ConnectionState } from "./utils/connectionManager";
 
 // Icons
 import {
@@ -32,10 +34,9 @@ function App() {
   const [platform, setPlatform] = useState<"desktop" | "mobile">(getAppPlatform());
 
   // Backend Connection and Identity State
-  const [connectionStatus, setConnectionStatus] = useState<"Connecting" | "Online" | "Offline" | "AuthError" | "RegError">("Connecting");
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionState>("Connecting");
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [reconnectAttempts, setReconnectAttempts] = useState<number>(0);
-  const [ws, setWs] = useState<WebSocket | null>(null);
 
   useEffect(() => {
     const handleResize = () => {
@@ -54,8 +55,12 @@ function App() {
       const res = await api.getActivePairing();
       if (res.paired) {
         setPairedDevice(res.device);
+        setPartnerConnected(res.device.status === "ONLINE");
+        await secureStore.set("pairedDevice", JSON.stringify(res.device));
       } else {
         setPairedDevice(null);
+        setPartnerConnected(false);
+        await secureStore.remove("pairedDevice");
       }
     } catch (e) {
       console.warn("Failed to check active pairing:", e);
@@ -135,9 +140,14 @@ function App() {
 
       // Load active pairing if it exists
       await checkActivePairing();
-
-      setConnectionStatus("Online");
+      
+      setConnectionStatus("Connected");
       addLog("SYS", "Mutual cryptographic authentication PASSED.");
+
+      const saved = await secureStore.get("pairedDevice");
+      if (saved) {
+        connectionManager.connect();
+      }
     } catch (err: any) {
       console.error("[Backend Init Failed]", err);
       
@@ -160,11 +170,18 @@ function App() {
       if (isNetworkError) {
         addLog("NET", "Backend server is offline or unreachable.");
         setConnectionStatus("Offline");
+        
+        // Try connecting WebSocket if paired so it starts the retry loop
+        const saved = await secureStore.get("pairedDevice");
+        if (saved) {
+          connectionManager.connect();
+        }
+        
         // Retry connection with backoff
         scheduleReconnect();
       } else {
         addLog("ERR", `Backend authentication error: ${err.message || err}`);
-        setConnectionStatus("AuthError");
+        setConnectionStatus("AuthFailed");
       }
     }
   };
@@ -181,19 +198,33 @@ function App() {
 
   // Run initial setup on boot
   useEffect(() => {
-    initBackendSession();
+    const loadSavedPairing = async () => {
+      const saved = await secureStore.get("pairedDevice");
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          setPairedDevice(parsed);
+          setPartnerConnected(parsed.status === "ONLINE");
+        } catch (e) {
+          console.warn("Failed to parse saved pairing device:", e);
+        }
+      }
+    };
+    loadSavedPairing().then(() => {
+      initBackendSession();
+    });
   }, []);
 
   // Heartbeat Scheduler
   useEffect(() => {
-    if (connectionStatus !== "Online") return;
+    if (connectionStatus !== "Connected") return;
 
     // Reset reconnect attempts on successful connection
     setReconnectAttempts(0);
 
     const interval = setInterval(async () => {
       try {
-        let appVersion = "1.0.7";
+        let appVersion = "1.0.8";
         const storedVersion = await secureStore.get("appVersion");
         if (storedVersion) appVersion = storedVersion;
 
@@ -215,50 +246,37 @@ function App() {
     return () => clearInterval(interval);
   }, [connectionStatus]);
 
-  // WebSocket Live Channel Connection
+  // WebSocket Connection Manager Subscription
   useEffect(() => {
-    if (connectionStatus !== "Online") {
-      if (ws) {
-        ws.close();
-        setWs(null);
-      }
-      return;
-    }
-
-    let activeWs: WebSocket | null = null;
-    const connectWs = async () => {
-      try {
-        const wsBaseUrl = getApiBaseUrl().replace(/^http/, "ws");
-        const token = await secureStore.get("accessToken");
-        if (!token) return;
-
-        activeWs = new WebSocket(`${wsBaseUrl}?token=${token}`);
-        setWs(activeWs);
-
-        activeWs.onopen = () => {
-          console.log("[WebSocket] Handshake successful, real-time channel ready.");
-          addLog("SYS", "Real-time bidirectional control channel established.");
-        };
-
-        activeWs.onmessage = (event) => {
-          console.log("[WebSocket] Event received:", event.data);
-          addLog("SYS", `Remote Event: ${event.data}`);
-        };
-
-        activeWs.onclose = () => {
-          console.log("[WebSocket] Connection closed.");
-        };
-      } catch (err) {
-        console.error("[WebSocket] Connection error:", err);
+    const handleStateChange = (state: ConnectionState) => {
+      setConnectionStatus(state);
+      
+      if (state === "Connected") {
+        addLog("SYS", "Real-time bidirectional control channel established.");
+      } else if (state === "Offline" || state === "Disconnected") {
+        addLog("NET", "Real-time channel disconnected.");
+      } else if (state === "Reconnecting") {
+        addLog("SYS", "Real-time channel reconnecting...");
+      } else if (state === "PairingRevoked") {
+        addLog("ERR", "Pairing has been revoked. Re-pairing required.");
+        setPairedDevice(null);
+        setPartnerConnected(false);
+        secureStore.remove("pairedDevice");
       }
     };
 
-    connectWs();
-
-    return () => {
-      if (activeWs) activeWs.close();
+    const handleMessage = (msg: any) => {
+      if (msg.type === "CONNECTION_STATUS") {
+        setPartnerConnected(msg.payload.status === "CONNECTED");
+        addLog("SYS", `Partner device status: ${msg.payload.status}`);
+      } else {
+        addLog("SYS", `Remote Event: ${msg.type}`);
+      }
     };
-  }, [connectionStatus]);
+
+    connectionManager.subscribe(handleStateChange, handleMessage);
+    return () => connectionManager.unsubscribe();
+  }, [platform]);
 
   // Auto Update Checker Hook
   const { updateAvailable, updateInfo, isUpdating, executeUpdate, dismissUpdate } = useUpdateChecker();
@@ -276,8 +294,9 @@ function App() {
   // Device status variables
   const [batteryLaptop, setBatteryLaptop] = useState<number>(100);
   const [batteryPhone, setBatteryPhone] = useState<number>(84);
-  const phoneOnline = pairedDevice ? pairedDevice.status === "ONLINE" : false;
-  const laptopOnline = pairedDevice ? pairedDevice.status === "ONLINE" : false;
+  const [partnerConnected, setPartnerConnected] = useState<boolean>(false);
+  const phoneOnline = platform === "desktop" ? partnerConnected : false;
+  const laptopOnline = platform === "mobile" ? partnerConnected : false;
 
   // Coordinates
   const laptopCoords = { lat: 37.7749, lng: -122.4194 };
@@ -341,6 +360,9 @@ function App() {
       try {
         await api.unpairDevice();
         setPairedDevice(null);
+        setPartnerConnected(false);
+        await secureStore.remove("pairedDevice");
+        connectionManager.disconnect();
         addLog("SYS", "Device relationship unpaired successfully.");
         alert("Device unpaired successfully.");
       } catch (e: any) {

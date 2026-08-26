@@ -15,18 +15,24 @@ export const Titlebar: React.FC<TitlebarProps> = ({ connectionStatus = "Connecti
 
   let dotColor = "bg-yellow-500";
   let statusText = "Connecting...";
-  if (connectionStatus === "Online") {
+  if (connectionStatus === "Connected" || connectionStatus === "Online") {
     dotColor = "bg-emerald-500 animate-pulse";
     statusText = "Connected";
   } else if (connectionStatus === "Offline") {
     dotColor = "bg-slate-500";
     statusText = "Offline";
-  } else if (connectionStatus === "AuthError") {
+  } else if (connectionStatus === "Disconnected") {
+    dotColor = "bg-slate-500";
+    statusText = "Disconnected";
+  } else if (connectionStatus === "Reconnecting") {
+    dotColor = "bg-yellow-500 animate-pulse";
+    statusText = "Reconnecting...";
+  } else if (connectionStatus === "AuthFailed" || connectionStatus === "AuthError") {
     dotColor = "bg-red-500 animate-bounce";
     statusText = "Auth Error";
-  } else if (connectionStatus === "RegError") {
+  } else if (connectionStatus === "PairingRevoked" || connectionStatus === "RegError") {
     dotColor = "bg-red-700";
-    statusText = "Reg Error";
+    statusText = "Pairing Revoked";
   }
 
   return (

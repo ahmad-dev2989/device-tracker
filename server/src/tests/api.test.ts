@@ -6,6 +6,8 @@ import crypto from "node:crypto";
 import { server } from "../index.js";
 import { db } from "../db.js";
 
+let testPort: number;
+
 // Helper to make HTTP requests
 async function makeRequest(
   path: string,
@@ -20,7 +22,7 @@ async function makeRequest(
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  const res = await fetch(`http://localhost:3005${path}`, {
+  const res = await fetch(`http://localhost:${testPort}${path}`, {
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined,
@@ -46,17 +48,26 @@ describe("OmniRecover Backend API Tests", () => {
   let otherPrivateKey: crypto.KeyObject;
   let otherDeviceId: string;
 
-  before(() => {
+  before(async () => {
+    // Start server on a random port
+    await new Promise<void>((resolve) => {
+      server.listen(0, () => {
+        const addr = server.address() as any;
+        testPort = addr.port;
+        resolve();
+      });
+    });
+
     // Device A
-    const keysA = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
-    privateKey = keysA.privateKey;
-    publicKeyJwkStr = JSON.stringify(keysA.publicKey.export({ format: "jwk" }));
+    const keyPair = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
+    publicKeyJwkStr = JSON.stringify(keyPair.publicKey.export({ format: "jwk" }));
+    privateKey = keyPair.privateKey;
     deviceId = crypto.randomUUID();
 
     // Device B
-    const keysB = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
-    otherPrivateKey = keysB.privateKey;
-    otherPublicKeyJwkStr = JSON.stringify(keysB.publicKey.export({ format: "jwk" }));
+    const otherKeyPair = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
+    otherPublicKeyJwkStr = JSON.stringify(otherKeyPair.publicKey.export({ format: "jwk" }));
+    otherPrivateKey = otherKeyPair.privateKey;
     otherDeviceId = crypto.randomUUID();
   });
 
@@ -399,5 +410,9 @@ describe("OmniRecover Backend API Tests", () => {
       assert.strictEqual(activeRes.status, 200);
       assert.strictEqual(activeRes.data.paired, false);
     });
+  });
+
+  after(() => {
+    server.close();
   });
 });
