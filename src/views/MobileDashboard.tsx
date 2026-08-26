@@ -249,43 +249,9 @@ export const MobileDashboard: React.FC<MobileDashboardProps> = ({
                     </button>
                   </div>
                   {connectionStatus !== "Online" && (
-                    <div className="space-y-4 mt-4">
-                      <div className="text-[10px] text-slate-400 font-mono text-center flex items-center justify-center gap-1.5 animate-pulse">
-                        <RefreshCw className="w-3 h-3 animate-spin" />
-                        Establishing connection to server ({connectionStatus})...
-                      </div>
-                      
-                      <div className="p-4 border border-slate-100 rounded-xl bg-slate-50 text-left space-y-2">
-                        <label className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
-                          Configure Server URL
-                        </label>
-                        <div className="flex gap-2">
-                          <input
-                            type="text"
-                            placeholder="http://192.168.1.X:3000 or https://..."
-                            defaultValue={localStorage.getItem("OMNI_RECOVER_API_URL") || ""}
-                            id="custom-server-url"
-                            className="flex-1 border border-slate-200 bg-white rounded-lg px-2.5 py-1.5 text-[11px] focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
-                          />
-                          <button
-                            onClick={() => {
-                              const url = (document.getElementById("custom-server-url") as HTMLInputElement)?.value.trim();
-                              if (url) {
-                                localStorage.setItem("OMNI_RECOVER_API_URL", url);
-                              } else {
-                                localStorage.removeItem("OMNI_RECOVER_API_URL");
-                              }
-                              window.location.reload();
-                            }}
-                            className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-3 py-1.5 rounded-lg text-xs cursor-pointer border-0 shrink-0"
-                          >
-                            Save & Connect
-                          </button>
-                        </div>
-                        <p className="text-[9px] text-slate-400 leading-normal">
-                          Enter your laptop's local network IP (e.g. <code>http://192.168.1.15:3000</code>) or a public tunnel URL (e.g. <code>https://your-tunnel.localhost.run</code>).
-                        </p>
-                      </div>
+                    <div className="text-[10px] text-slate-400 font-mono text-center flex items-center justify-center gap-1.5 mt-2 animate-pulse">
+                      <RefreshCw className="w-3 h-3 animate-spin" />
+                      Establishing connection to server ({connectionStatus})...
                     </div>
                   )}
                 </div>

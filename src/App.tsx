@@ -70,7 +70,7 @@ function App() {
       let storedPrivateKeyStr = await secureStore.get("privateKey");
       let privateKeyJwk: any = null;
 
-      let appVersion = "1.0.6";
+      let appVersion = "1.0.7";
       try {
         if (platform === "desktop") {
           const { getVersion } = await import("@tauri-apps/api/app");
@@ -193,7 +193,7 @@ function App() {
 
     const interval = setInterval(async () => {
       try {
-        let appVersion = "1.0.6";
+        let appVersion = "1.0.7";
         const storedVersion = await secureStore.get("appVersion");
         if (storedVersion) appVersion = storedVersion;
 
