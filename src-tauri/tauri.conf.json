@@ -1,6 +1,6 @@
 {
   "productName": "OmniRecover",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "identifier": "com.omnirecover.guardian",
   "build": {
     "beforeDevCommand": "npm run dev",

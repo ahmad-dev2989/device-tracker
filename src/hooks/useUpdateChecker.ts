@@ -10,17 +10,35 @@ interface UpdateInfo {
 // Fallback version for browser simulation
 const SIMULATED_LOCAL_VERSION = "1.0.0";
 
-// Helper to compare semantic versions (e.g., "1.0.1" > "1.0.0")
-const isNewerVersion = (remote: string, local: string): boolean => {
-  const cleanRemote = remote.replace(/^v/, "").split(".").map(Number);
-  const cleanLocal = local.replace(/^v/, "").split(".").map(Number);
+// Helper to parse version components and suffixes
+const parseVersion = (v: string) => {
+  const clean = v.replace(/^v/, "");
+  const match = clean.match(/^(\d+(?:\.\d+)*)(.*)$/);
+  if (!match) return { numbers: [0], suffix: "" };
   
-  for (let i = 0; i < Math.max(cleanRemote.length, cleanLocal.length); i++) {
-    const rNum = cleanRemote[i] || 0;
-    const lNum = cleanLocal[i] || 0;
+  const numbers = match[1].split(".").map(Number);
+  const suffix = match[2] || "";
+  return { numbers, suffix };
+};
+
+// Helper to compare semantic versions supporting suffixes (e.g., "1.0.2-qr" > "1.0.2")
+const isNewerVersion = (remote: string, local: string): boolean => {
+  const r = parseVersion(remote);
+  const l = parseVersion(local);
+  
+  for (let i = 0; i < Math.max(r.numbers.length, l.numbers.length); i++) {
+    const rNum = r.numbers[i] || 0;
+    const lNum = l.numbers[i] || 0;
     if (rNum > lNum) return true;
     if (rNum < lNum) return false;
   }
+  
+  if (r.suffix !== l.suffix) {
+    if (!l.suffix && r.suffix) return true;
+    if (l.suffix && !r.suffix) return false;
+    return r.suffix > l.suffix;
+  }
+  
   return false;
 };
 
