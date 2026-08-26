@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { RadarMap } from "../components/RadarMap";
 import { Laptop, Battery, Wifi, Clock, Power, Volume2, RefreshCw, Lock, ChevronUp, ChevronDown, Camera, Compass } from "lucide-react";
 import { api } from "../utils/api";
@@ -48,11 +48,23 @@ export const MobileDashboard: React.FC<MobileDashboardProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [pairingMode, setPairingMode] = useState<"none" | "qr" | "text">("none");
 
-  // QR Scanner States & Refs
   const [scanning, setScanning] = useState(false);
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
   const streamRef = React.useRef<MediaStream | null>(null);
+
+  useEffect(() => {
+    if (pairingMode === "qr") {
+      startScanner();
+    } else {
+      stopScanner();
+    }
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, [pairingMode]);
 
   const startScanner = async () => {
     setError(null);
@@ -275,47 +287,38 @@ export const MobileDashboard: React.FC<MobileDashboardProps> = ({
 
               {pairingMode === "qr" && (
                 <div className="space-y-4">
-                  {/* Camera scan block */}
-                  {!scanning ? (
-                    <div className="space-y-4">
-                      <p className="text-xs text-slate-500 text-center">
-                        Scan the QR code shown on your laptop screen.
-                      </p>
-                      <button
-                        onClick={startScanner}
-                        className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-bold text-xs uppercase tracking-wider transition-colors flex items-center justify-center gap-2 cursor-pointer border-0"
-                      >
-                        <Camera className="w-4 h-4" />
-                        Start Scanner
-                      </button>
-                      <button
-                        onClick={() => setPairingMode("none")}
-                        className="w-full border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer"
-                      >
-                        Go Back
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      <div className="relative w-full aspect-video rounded-xl overflow-hidden border border-slate-200 bg-black flex items-center justify-center">
-                        <video
-                          ref={videoRef}
-                          className="w-full h-full object-cover animate-fade-in"
-                        />
-                        <canvas ref={canvasRef} className="hidden" />
-                        <div className="absolute inset-0 border-2 border-dashed border-blue-500/50 m-6 rounded-lg pointer-events-none animate-pulse flex items-center justify-center">
-                          <div className="w-48 h-0.5 bg-blue-500 animate-bounce opacity-85"></div>
-                        </div>
-                      </div>
+                  <p className="text-xs text-slate-500 text-center">
+                    Align the QR code on your laptop inside the square target.
+                  </p>
 
-                      <button
-                        onClick={stopScanner}
-                        className="w-full border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer"
-                      >
-                        Cancel Scan
-                      </button>
+                  <div className="relative w-72 h-72 mx-auto rounded-3xl overflow-hidden border-4 border-slate-800 bg-black shadow-2xl flex items-center justify-center">
+                    {/* Camera Video Stream */}
+                    <video
+                      ref={videoRef}
+                      className="absolute inset-0 w-full h-full object-cover animate-fade-in"
+                      playsInline
+                    />
+                    <canvas ref={canvasRef} className="hidden" />
+
+                    {/* QR Scanner Reticle Overlay */}
+                    <div className="absolute inset-8 border-2 border-dashed border-blue-500/75 rounded-2xl pointer-events-none flex flex-col justify-between items-center p-4">
+                      {/* Scanning Laser Line */}
+                      <div className="w-full h-0.5 bg-gradient-to-r from-transparent via-blue-500 to-transparent animate-scan shadow-lg shadow-blue-500/50"></div>
+                      
+                      {/* Reticle Corner Brackets styling */}
+                      <div className="absolute top-0 left-0 w-4 h-4 border-t-4 border-l-4 border-blue-500 rounded-tl-md"></div>
+                      <div className="absolute top-0 right-0 w-4 h-4 border-t-4 border-r-4 border-blue-500 rounded-tr-md"></div>
+                      <div className="absolute bottom-0 left-0 w-4 h-4 border-b-4 border-l-4 border-blue-500 rounded-bl-md"></div>
+                      <div className="absolute bottom-0 right-0 w-4 h-4 border-b-4 border-r-4 border-blue-500 rounded-br-md"></div>
                     </div>
-                  )}
+                  </div>
+
+                  <button
+                    onClick={() => setPairingMode("none")}
+                    className="w-full border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 py-3 rounded-xl font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer"
+                  >
+                    Cancel & Go Back
+                  </button>
                 </div>
               )}
 
