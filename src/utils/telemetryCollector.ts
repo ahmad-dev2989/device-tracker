@@ -36,6 +36,7 @@ export const TELEMETRY_CONFIG = {
   maxTimeStationaryForceMs: 300000,  // Force location send every 5 minutes even if stationary
   locationTimeoutMs: 15000,          // 15 seconds timeout
   enableHighAccuracy: true,          // Use precise location where available
+  staleThresholdMs: 120000,          // 2 minutes stale threshold
 };
 
 // Haversine formula to compute distance between two coordinates in meters
