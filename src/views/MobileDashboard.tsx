@@ -20,6 +20,7 @@ interface MobileDashboardProps {
   pairedDevice: any | null;
   onUnpairDevice: () => void;
   checkActivePairing: () => Promise<void>;
+  targetTelemetry: any | null;
 }
 
 export const MobileDashboard: React.FC<MobileDashboardProps> = ({
@@ -38,6 +39,7 @@ export const MobileDashboard: React.FC<MobileDashboardProps> = ({
   pairedDevice,
   onUnpairDevice,
   checkActivePairing,
+  targetTelemetry,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -420,12 +422,16 @@ export const MobileDashboard: React.FC<MobileDashboardProps> = ({
         <div className="flex gap-4 text-xs bg-slate-50/50 p-2.5 rounded-xl border border-slate-100 font-mono text-slate-500">
           <div className="flex-1 flex items-center gap-1.5 justify-center py-0.5">
             <Battery className="w-4 h-4 text-slate-400" />
-            <span className="text-slate-700 font-semibold">{batteryLaptop}%</span>
+            <span className="text-slate-700 font-semibold">
+              {targetTelemetry?.batteryLevel !== undefined ? `${targetTelemetry.batteryLevel}%` : `${batteryLaptop}%`}
+            </span>
           </div>
           <div className="w-px bg-slate-200"></div>
           <div className="flex-grow flex items-center gap-1.5 justify-center py-0.5">
             <Wifi className="w-4 h-4 text-slate-400" />
-            <span className="text-slate-700 font-semibold">{laptopOnline ? "Wi-Fi" : "None"}</span>
+            <span className="text-slate-700 font-semibold">
+              {targetTelemetry?.networkType || (laptopOnline ? "Wi-Fi" : "None")}
+            </span>
           </div>
         </div>
 
@@ -435,21 +441,33 @@ export const MobileDashboard: React.FC<MobileDashboardProps> = ({
             <div className="space-y-2.5">
               <div>
                 <span className="text-[8px] text-slate-400 uppercase tracking-wider font-bold block">Power State</span>
-                <span className="text-slate-800 font-semibold">{deceptionActive ? "Lid Closed (Sim)" : "System Active"}</span>
+                <span className="text-slate-800 font-semibold">
+                  {targetTelemetry?.isCharging ? "Charging" : (deceptionActive ? "Lid Closed (Sim)" : "On Battery")}
+                </span>
               </div>
               <div>
                 <span className="text-[8px] text-slate-400 uppercase tracking-wider font-bold block">Last Sync</span>
-                <span className="text-slate-800 font-semibold">{laptopOnline ? "Continuous" : "Offline"}</span>
+                <span className="text-slate-800 font-semibold">
+                  {laptopOnline ? "Just now" : (targetTelemetry?.timestamp ? new Date(targetTelemetry.timestamp).toLocaleTimeString() : "Offline")}
+                </span>
               </div>
             </div>
             <div className="space-y-2.5 pl-4">
               <div>
-                <span className="text-[8px] text-slate-400 uppercase tracking-wider font-bold block">Connection Mode</span>
-                <span className="text-slate-800 font-semibold">{laptopOnline ? "Wi-Fi (Primary)" : "None"}</span>
+                <span className="text-[8px] text-slate-400 uppercase tracking-wider font-bold block">Location Info</span>
+                <span className="text-slate-800 font-semibold truncate block">
+                  {targetTelemetry?.latitude && targetTelemetry?.longitude ? (
+                    `${targetTelemetry.latitude.toFixed(4)}°, ${Math.abs(targetTelemetry.longitude).toFixed(4)}° W`
+                  ) : (
+                    "No Data"
+                  )}
+                </span>
               </div>
               <div>
-                <span className="text-[8px] text-slate-400 uppercase tracking-wider font-bold block">Telemetry</span>
-                <span className="text-slate-800 font-semibold">EC DSA-256 Link</span>
+                <span className="text-[8px] text-slate-400 uppercase tracking-wider font-bold block">Accuracy / Source</span>
+                <span className="text-slate-800 font-semibold">
+                  {targetTelemetry?.accuracy ? `±${Math.round(targetTelemetry.accuracy)}m (${targetTelemetry.source})` : "ECDSA Link"}
+                </span>
               </div>
             </div>
           </div>

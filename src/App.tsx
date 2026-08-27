@@ -10,6 +10,7 @@ import { api, getApiBaseUrl } from "./utils/api";
 import { generateDeviceKeyPair, signChallenge } from "./utils/crypto";
 import { connectionManager } from "./utils/connectionManager";
 import type { ConnectionState } from "./utils/connectionManager";
+import { telemetryCollector } from "./utils/telemetryCollector";
 
 // Icons
 import {
@@ -49,6 +50,20 @@ function App() {
   // Pairing State
   const [pairedDevice, setPairedDevice] = useState<any | null>(null);
   const [pairingRequest, setPairingRequest] = useState<any | null>(null);
+  const [targetTelemetry, setTargetTelemetry] = useState<any | null>(null);
+  const [localCoords, setLocalCoords] = useState<{ lat: number; lng: number } | null>(null);
+
+  const fetchTargetTelemetry = async () => {
+    try {
+      const res = await api.getPairedTelemetry();
+      if (res) {
+        setTargetTelemetry(res.telemetry);
+        setPartnerConnected(res.status === "ONLINE");
+      }
+    } catch (e) {
+      console.warn("Failed to fetch paired telemetry:", e);
+    }
+  };
 
   const checkActivePairing = async () => {
     try {
@@ -57,9 +72,11 @@ function App() {
         setPairedDevice(res.device);
         setPartnerConnected(res.device.status === "ONLINE");
         await secureStore.set("pairedDevice", JSON.stringify(res.device));
+        await fetchTargetTelemetry();
       } else {
         setPairedDevice(null);
         setPartnerConnected(false);
+        setTargetTelemetry(null);
         await secureStore.remove("pairedDevice");
       }
     } catch (e) {
@@ -75,7 +92,7 @@ function App() {
       let storedPrivateKeyStr = await secureStore.get("privateKey");
       let privateKeyJwk: any = null;
 
-      let appVersion = "1.0.7";
+      let appVersion = "1.0.9";
       try {
         if (platform === "desktop") {
           const { getVersion } = await import("@tauri-apps/api/app");
@@ -224,7 +241,7 @@ function App() {
 
     const interval = setInterval(async () => {
       try {
-        let appVersion = "1.0.8";
+        let appVersion = "1.0.9";
         const storedVersion = await secureStore.get("appVersion");
         if (storedVersion) appVersion = storedVersion;
 
@@ -269,6 +286,40 @@ function App() {
       if (msg.type === "CONNECTION_STATUS") {
         setPartnerConnected(msg.payload.status === "CONNECTED");
         addLog("SYS", `Partner device status: ${msg.payload.status}`);
+        fetchTargetTelemetry();
+      } else if (msg.type === "LOCATION_UPDATE") {
+        setTargetTelemetry((prev: any) => ({
+          ...prev,
+          latitude: msg.payload.latitude,
+          longitude: msg.payload.longitude,
+          accuracy: msg.payload.accuracy,
+          source: msg.payload.source,
+          timestamp: msg.timestamp,
+          altitude: msg.payload.altitude,
+          heading: msg.payload.heading,
+          speed: msg.payload.speed,
+        }));
+        addLog("LOC", `Target location updated (Source: ${msg.payload.source})`);
+      } else if (msg.type === "DEVICE_TELEMETRY") {
+        setTargetTelemetry((prev: any) => ({
+          ...prev,
+          timestamp: msg.payload.timestamp,
+          batteryLevel: msg.payload.battery?.level,
+          isCharging: msg.payload.battery?.charging,
+          networkType: msg.payload.network?.type,
+          appVersion: msg.payload.appVersion,
+          platform: msg.payload.platform,
+          ...(msg.payload.location ? {
+            latitude: msg.payload.location.latitude,
+            longitude: msg.payload.location.longitude,
+            accuracy: msg.payload.location.accuracy,
+            source: msg.payload.location.source,
+            altitude: msg.payload.location.altitude,
+            heading: msg.payload.location.heading,
+            speed: msg.payload.location.speed,
+          } : {}),
+        }));
+        addLog("SYS", `Target telemetry: Battery ${msg.payload.battery?.level}%, Net ${msg.payload.network?.type}`);
       } else {
         addLog("SYS", `Remote Event: ${msg.type}`);
       }
@@ -292,16 +343,74 @@ function App() {
   const [sirenDetonated, setSirenDetonated] = useState<boolean>(false);
 
   // Device status variables
-  const [batteryLaptop, setBatteryLaptop] = useState<number>(100);
-  const [batteryPhone, setBatteryPhone] = useState<number>(84);
   const [partnerConnected, setPartnerConnected] = useState<boolean>(false);
   const phoneOnline = platform === "desktop" ? partnerConnected : false;
   const laptopOnline = platform === "mobile" ? partnerConnected : false;
 
+  // Start/Stop local Telemetry Collection
+  useEffect(() => {
+    if (connectionStatus !== "Connected" || !deviceId) {
+      telemetryCollector.stop();
+      return;
+    }
+
+    telemetryCollector.start((telemetry) => {
+      console.log("[App] Sending local telemetry:", telemetry);
+      connectionManager.sendMessage("DEVICE_TELEMETRY", telemetry);
+
+      if (telemetry.location) {
+        setLocalCoords({
+          lat: telemetry.location.latitude,
+          lng: telemetry.location.longitude,
+        });
+      }
+    });
+
+    return () => {
+      telemetryCollector.stop();
+    };
+  }, [connectionStatus, deviceId]);
+
   // Coordinates
-  const laptopCoords = { lat: 37.7749, lng: -122.4194 };
-  const phoneCoords = { lat: 37.7753, lng: -122.4201 };
-  const [proximityDistance, setProximityDistance] = useState<number>(12);
+  const laptopCoords = platform === "desktop"
+    ? (localCoords || { lat: 37.7749, lng: -122.4194 })
+    : (targetTelemetry && targetTelemetry.latitude && targetTelemetry.longitude
+        ? { lat: targetTelemetry.latitude, lng: targetTelemetry.longitude }
+        : { lat: 37.7749, lng: -122.4194 });
+
+  const phoneCoords = platform === "mobile"
+    ? (localCoords || { lat: 37.7753, lng: -122.4201 })
+    : (targetTelemetry && targetTelemetry.latitude && targetTelemetry.longitude
+        ? { lat: targetTelemetry.latitude, lng: targetTelemetry.longitude }
+        : { lat: 37.7753, lng: -122.4201 });
+
+  const batteryPhone = platform === "desktop"
+    ? (targetTelemetry?.batteryLevel ?? 84)
+    : 84;
+
+  const batteryLaptop = platform === "mobile"
+    ? (targetTelemetry?.batteryLevel ?? 100)
+    : 100;
+
+  // Compute proximity distance dynamically
+  let proximityDistance = 12;
+  const targetLat = targetTelemetry?.latitude;
+  const targetLng = targetTelemetry?.longitude;
+  const localLat = localCoords?.lat;
+  const localLng = localCoords?.lng;
+  if (typeof targetLat === "number" && typeof targetLng === "number" && typeof localLat === "number" && typeof localLng === "number") {
+    const R = 6371e3; // meters
+    const phi1 = (localLat * Math.PI) / 180;
+    const phi2 = (targetLat * Math.PI) / 180;
+    const deltaPhi = ((targetLat - localLat) * Math.PI) / 180;
+    const deltaLambda = ((targetLng - localLng) * Math.PI) / 180;
+    const a =
+      Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+      Math.cos(phi1) * Math.cos(phi2) *
+        Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    proximityDistance = Math.round(R * c);
+  }
 
   // Log simulation
   const [logs, setLogs] = useState<LogMessage[]>(PRE_SEEDED_LOGS);
@@ -312,16 +421,18 @@ function App() {
   };
 
   // Sync Action
-  const triggerSync = () => {
+  const triggerSync = async () => {
     setIsSyncing(true);
-    setLatency((prev) => Math.max(10, Math.floor(prev + (Math.random() * 20 - 10))));
-    setTimeout(() => {
+    addLog("SYS", "Synchronizing telemetry data...");
+    try {
+      await telemetryCollector.collectAndReport();
+      await fetchTargetTelemetry();
+      addLog("SYS", "Telemetry synchronization completed.");
+    } catch (e: any) {
+      addLog("ERR", "Telemetry sync failed: " + e.message);
+    } finally {
       setIsSyncing(false);
-      addLog("SYS", "Dynamic pairing tokens renewed. Cipher status: OK.");
-      setBatteryPhone((prev) => Math.max(1, prev - 1));
-      setBatteryLaptop((prev) => Math.max(1, prev === 100 ? 100 : prev - 1));
-      setProximityDistance((prev) => Math.max(4, prev + Math.floor(Math.random() * 6 - 3)));
-    }, 1200);
+    }
   };
 
   // Alarm Trigger Action
@@ -475,6 +586,7 @@ function App() {
             pairedDevice={pairedDevice}
             pairingRequest={pairingRequest}
             setPairingRequest={setPairingRequest}
+            targetTelemetry={targetTelemetry}
           />
         ) : (
           <MobileDashboard
@@ -493,6 +605,7 @@ function App() {
             pairedDevice={pairedDevice}
             onUnpairDevice={handleUnpairDevice}
             checkActivePairing={checkActivePairing}
+            targetTelemetry={targetTelemetry}
           />
         )}
       </div>

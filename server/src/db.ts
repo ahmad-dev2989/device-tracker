@@ -95,5 +95,119 @@ export function initializeSchema() {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_active_pairings ON pairings (deviceA, deviceB) WHERE status = 'ACTIVE';
   `);
 
+  // Device Telemetry table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS device_telemetry (
+      deviceId TEXT PRIMARY KEY,
+      timestamp TEXT NOT NULL,
+      latitude REAL,
+      longitude REAL,
+      accuracy REAL,
+      source TEXT,
+      altitude REAL,
+      heading REAL,
+      speed REAL,
+      batteryLevel REAL,
+      isCharging INTEGER,
+      powerState TEXT,
+      networkType TEXT,
+      appVersion TEXT,
+      platform TEXT,
+      FOREIGN KEY (deviceId) REFERENCES devices(id) ON DELETE CASCADE
+    );
+  `);
+
   console.log("[Database] Schema check and migrations completed.");
+}
+
+export function updateDeviceTelemetry(deviceId: string, telemetry: any) {
+  // Check if record exists
+  const existing = db.prepare("SELECT deviceId FROM device_telemetry WHERE deviceId = ?").get(deviceId);
+  
+  if (existing) {
+    // Perform update of fields that are passed (coalescing with existing values)
+    const sql = `
+      UPDATE device_telemetry
+      SET 
+        timestamp = ?,
+        latitude = COALESCE(?, latitude),
+        longitude = COALESCE(?, longitude),
+        accuracy = COALESCE(?, accuracy),
+        source = COALESCE(?, source),
+        altitude = COALESCE(?, altitude),
+        heading = COALESCE(?, heading),
+        speed = COALESCE(?, speed),
+        batteryLevel = COALESCE(?, batteryLevel),
+        isCharging = COALESCE(?, isCharging),
+        powerState = COALESCE(?, powerState),
+        networkType = COALESCE(?, networkType),
+        appVersion = COALESCE(?, appVersion),
+        platform = COALESCE(?, platform)
+      WHERE deviceId = ?
+    `;
+    db.prepare(sql).run(
+      telemetry.timestamp,
+      telemetry.latitude !== undefined ? telemetry.latitude : null,
+      telemetry.longitude !== undefined ? telemetry.longitude : null,
+      telemetry.accuracy !== undefined ? telemetry.accuracy : null,
+      telemetry.source !== undefined ? telemetry.source : null,
+      telemetry.altitude !== undefined ? telemetry.altitude : null,
+      telemetry.heading !== undefined ? telemetry.heading : null,
+      telemetry.speed !== undefined ? telemetry.speed : null,
+      telemetry.batteryLevel !== undefined ? telemetry.batteryLevel : null,
+      telemetry.isCharging !== undefined ? (telemetry.isCharging ? 1 : 0) : null,
+      telemetry.powerState !== undefined ? telemetry.powerState : null,
+      telemetry.networkType !== undefined ? telemetry.networkType : null,
+      telemetry.appVersion !== undefined ? telemetry.appVersion : null,
+      telemetry.platform !== undefined ? telemetry.platform : null,
+      deviceId
+    );
+  } else {
+    // Insert new record
+    const sql = `
+      INSERT INTO device_telemetry (
+        deviceId, timestamp, latitude, longitude, accuracy, source, 
+        altitude, heading, speed, batteryLevel, isCharging, powerState, networkType, appVersion, platform
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+    db.prepare(sql).run(
+      deviceId,
+      telemetry.timestamp,
+      telemetry.latitude !== undefined ? telemetry.latitude : null,
+      telemetry.longitude !== undefined ? telemetry.longitude : null,
+      telemetry.accuracy !== undefined ? telemetry.accuracy : null,
+      telemetry.source !== undefined ? telemetry.source : null,
+      telemetry.altitude !== undefined ? telemetry.altitude : null,
+      telemetry.heading !== undefined ? telemetry.heading : null,
+      telemetry.speed !== undefined ? telemetry.speed : null,
+      telemetry.batteryLevel !== undefined ? telemetry.batteryLevel : null,
+      telemetry.isCharging !== undefined ? (telemetry.isCharging ? 1 : 0) : null,
+      telemetry.powerState !== undefined ? telemetry.powerState : null,
+      telemetry.networkType !== undefined ? telemetry.networkType : null,
+      telemetry.appVersion !== undefined ? telemetry.appVersion : null,
+      telemetry.platform !== undefined ? telemetry.platform : null
+    );
+  }
+}
+
+export function getDeviceTelemetry(deviceId: string) {
+  const row = db.prepare("SELECT * FROM device_telemetry WHERE deviceId = ?").get(deviceId) as any;
+  if (!row) return null;
+  return {
+    deviceId: row.deviceId,
+    timestamp: row.timestamp,
+    latitude: row.latitude,
+    longitude: row.longitude,
+    accuracy: row.accuracy,
+    source: row.source,
+    altitude: row.altitude,
+    heading: row.heading,
+    speed: row.speed,
+    batteryLevel: row.batteryLevel,
+    isCharging: row.isCharging === 1,
+    powerState: row.powerState,
+    networkType: row.networkType,
+    appVersion: row.appVersion,
+    platform: row.platform
+  };
 }

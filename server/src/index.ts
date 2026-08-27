@@ -6,7 +6,7 @@ import rateLimit from "express-rate-limit";
 import { WebSocketServer, WebSocket } from "ws";
 import { Message } from "./types/message.js";
 import dotenv from "dotenv";
-import { db, initializeSchema } from "./db.js";
+import { db, initializeSchema, updateDeviceTelemetry, getDeviceTelemetry } from "./db.js";
 import {
   generateChallenge,
   verifyChallenge,
@@ -315,6 +315,43 @@ app.get("/api/devices/:id", authenticateToken, (req: AuthRequest, res: Response)
 
     res.json(device);
   } catch (err) {
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// 7.5 GET /api/devices/paired/telemetry
+app.get("/api/devices/paired/telemetry", authenticateToken, (req: AuthRequest, res: Response) => {
+  const callerDeviceId = req.deviceId!;
+  try {
+    const activePairing = db.prepare(`
+      SELECT deviceA, deviceB FROM pairings 
+      WHERE (deviceA = ? OR deviceB = ?) AND status = 'ACTIVE'
+    `).get(callerDeviceId, callerDeviceId) as { deviceA: string; deviceB: string } | undefined;
+
+    if (!activePairing) {
+      res.status(403).json({ error: "Forbidden: No active pairing found" });
+      return;
+    }
+
+    const otherDeviceId = activePairing.deviceA === callerDeviceId ? activePairing.deviceB : activePairing.deviceA;
+    const telemetry = getDeviceTelemetry(otherDeviceId);
+    const device = db.prepare("SELECT name, platform, status, lastSeenAt FROM devices WHERE id = ?").get(otherDeviceId) as any;
+    
+    if (!device) {
+      res.status(404).json({ error: "Paired device not found" });
+      return;
+    }
+
+    res.json({
+      deviceId: otherDeviceId,
+      name: device.name,
+      platform: device.platform,
+      status: device.status,
+      lastSeenAt: device.lastSeenAt,
+      telemetry
+    });
+  } catch (err) {
+    console.error("[Database Error] Fetching telemetry failed:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -777,7 +814,17 @@ wss.on("connection", (ws: WebSocket, request: http.IncomingMessage, claims: { de
         throw new Error("Malformed message structure");
       }
 
-      const validTypes = ["CONNECTION_STATUS", "DEVICE_STATUS", "PAIRING_STATUS", "ACK", "ERROR"];
+      const validTypes = [
+        "CONNECTION_STATUS", 
+        "DEVICE_STATUS", 
+        "PAIRING_STATUS", 
+        "ACK", 
+        "ERROR",
+        "LOCATION_UPDATE",
+        "DEVICE_TELEMETRY",
+        "TELEMETRY_ACK",
+        "TELEMETRY_ERROR"
+      ];
       if (!validTypes.includes(message.type)) {
         throw new Error("Unknown message type");
       }
@@ -800,18 +847,113 @@ wss.on("connection", (ws: WebSocket, request: http.IncomingMessage, claims: { de
       messageIdCache.add(message.id);
       setTimeout(() => messageIdCache.delete(message.id), 60000).unref();
 
+      // Process Telemetry Messages
+      if (message.type === "LOCATION_UPDATE") {
+        const payload = message.payload;
+        if (
+          !payload ||
+          typeof payload.latitude !== "number" ||
+          typeof payload.longitude !== "number" ||
+          typeof payload.accuracy !== "number" ||
+          typeof payload.timestamp !== "string" ||
+          typeof payload.source !== "string" ||
+          payload.latitude < -90 || payload.latitude > 90 ||
+          payload.longitude < -180 || payload.longitude > 180
+        ) {
+          ws.send(JSON.stringify({
+            type: "TELEMETRY_ERROR",
+            id: crypto.randomUUID(),
+            timestamp: new Date().toISOString(),
+            payload: { error: "Invalid location coordinates or structure", originalMessageId: message.id }
+          }));
+          return;
+        }
+
+        updateDeviceTelemetry(deviceId, payload);
+        
+        ws.send(JSON.stringify({
+          type: "TELEMETRY_ACK",
+          id: crypto.randomUUID(),
+          timestamp: new Date().toISOString(),
+          payload: { originalMessageId: message.id }
+        }));
+      } else if (message.type === "DEVICE_TELEMETRY") {
+        const payload = message.payload;
+        if (!payload || typeof payload.timestamp !== "string" || typeof payload.appVersion !== "string" || typeof payload.platform !== "string") {
+          ws.send(JSON.stringify({
+            type: "TELEMETRY_ERROR",
+            id: crypto.randomUUID(),
+            timestamp: new Date().toISOString(),
+            payload: { error: "Invalid telemetry details or missing appVersion/platform", originalMessageId: message.id }
+          }));
+          return;
+        }
+
+        if (payload.location) {
+          const loc = payload.location;
+          if (
+            typeof loc.latitude !== "number" ||
+            typeof loc.longitude !== "number" ||
+            typeof loc.accuracy !== "number" ||
+            typeof loc.timestamp !== "string" ||
+            typeof loc.source !== "string" ||
+            loc.latitude < -90 || loc.latitude > 90 ||
+            loc.longitude < -180 || loc.longitude > 180
+          ) {
+            ws.send(JSON.stringify({
+              type: "TELEMETRY_ERROR",
+              id: crypto.randomUUID(),
+              timestamp: new Date().toISOString(),
+              payload: { error: "Invalid location coordinates in telemetry", originalMessageId: message.id }
+            }));
+            return;
+          }
+        }
+
+        const dbPayload: any = {
+          timestamp: payload.timestamp,
+          appVersion: payload.appVersion,
+          platform: payload.platform,
+          batteryLevel: payload.battery?.level,
+          isCharging: payload.battery?.charging,
+          powerState: payload.power?.state,
+          networkType: payload.network?.type,
+        };
+
+        if (payload.location) {
+          dbPayload.latitude = payload.location.latitude;
+          dbPayload.longitude = payload.location.longitude;
+          dbPayload.accuracy = payload.location.accuracy;
+          dbPayload.source = payload.location.source;
+          dbPayload.altitude = payload.location.altitude;
+          dbPayload.heading = payload.location.heading;
+          dbPayload.speed = payload.location.speed;
+        }
+
+        updateDeviceTelemetry(deviceId, dbPayload);
+
+        ws.send(JSON.stringify({
+          type: "TELEMETRY_ACK",
+          id: crypto.randomUUID(),
+          timestamp: new Date().toISOString(),
+          payload: { originalMessageId: message.id }
+        }));
+      }
+
       // Route message to partner (Requirement 9 & 10)
       const partnerId = currentPairing.deviceA === deviceId ? currentPairing.deviceB : currentPairing.deviceA;
       const partnerWs = activeConnections.get(partnerId);
       if (partnerWs && partnerWs.readyState === WebSocket.OPEN) {
         partnerWs.send(JSON.stringify(message));
       } else {
-        ws.send(JSON.stringify({
-          type: "ERROR",
-          id: crypto.randomUUID(),
-          timestamp: new Date().toISOString(),
-          payload: { error: "Paired device is offline", originalMessageId: message.id }
-        }));
+        if (message.type !== "LOCATION_UPDATE" && message.type !== "DEVICE_TELEMETRY") {
+          ws.send(JSON.stringify({
+            type: "ERROR",
+            id: crypto.randomUUID(),
+            timestamp: new Date().toISOString(),
+            payload: { error: "Paired device is offline", originalMessageId: message.id }
+          }));
+        }
       }
     } catch (err: any) {
       console.warn(`[WebSocket] Validation failed for message from ${deviceId}: ${err.message}`);
@@ -828,8 +970,12 @@ wss.on("connection", (ws: WebSocket, request: http.IncomingMessage, claims: { de
     // Only delete if it's the current active socket
     if (activeConnections.get(deviceId) === ws) {
       activeConnections.delete(deviceId);
+      
+      // Mark device offline in database
+      const nowStr = new Date().toISOString();
+      db.prepare("UPDATE devices SET status = 'OFFLINE', updatedAt = ? WHERE id = ?").run(nowStr, deviceId);
+      console.log(`[Security Log] Device marked offline on WS close: ${deviceId}`);
     }
-    console.log(`[WebSocket] Connection closed for device: ${deviceId}`);
 
     // Notify partner device of disconnection (Requirement 2)
     if (pairing) {

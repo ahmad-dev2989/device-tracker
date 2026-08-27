@@ -311,4 +311,17 @@ export const api = {
     }
     return res.json();
   },
+
+  /**
+   * Retrieve paired/associated device telemetry and connection status
+   */
+  async getPairedTelemetry(): Promise<{ deviceId: string; name: string; platform: string; status: string; lastSeenAt: string; telemetry: any }> {
+    const res = await authenticatedFetch("/api/devices/paired/telemetry", {
+      method: "GET",
+    });
+    if (!res.ok) {
+      throw new Error("Failed to query paired telemetry");
+    }
+    return res.json();
+  },
 };

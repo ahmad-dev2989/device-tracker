@@ -18,6 +18,7 @@ interface DesktopDashboardProps {
   pairedDevice: any | null;
   pairingRequest: any | null;
   setPairingRequest: (req: any | null) => void;
+  targetTelemetry: any | null;
 }
 
 export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({
@@ -35,6 +36,7 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({
   pairedDevice,
   pairingRequest,
   setPairingRequest,
+  targetTelemetry,
 }) => {
   const [timeLeft, setTimeLeft] = React.useState<number>(60);
   const [error, setError] = React.useState<string | null>(null);
@@ -274,28 +276,44 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({
                 <span className="text-[9px] text-slate-400 uppercase tracking-wider font-bold">Battery</span>
                 <span className="text-slate-800 font-semibold flex items-center gap-1">
                   <Battery className="w-3.5 h-3.5" />
-                  {batteryPhone}%
+                  {targetTelemetry?.batteryLevel !== undefined ? `${targetTelemetry.batteryLevel}%` : `${batteryPhone}%`}
+                  {targetTelemetry?.isCharging && <span className="text-[9px] text-emerald-500 font-bold">(Charging)</span>}
                 </span>
               </div>
               <div className="flex flex-col gap-0.5">
                 <span className="text-[9px] text-slate-400 uppercase tracking-wider font-bold">Network</span>
                 <span className="text-slate-800 font-semibold flex items-center gap-1">
                   <Wifi className="w-3.5 h-3.5" />
-                  {phoneOnline ? "BLE Mesh" : "None"}
+                  {targetTelemetry?.networkType || (phoneOnline ? "Wi-Fi" : "None")}
                 </span>
               </div>
               <div className="flex flex-col gap-0.5">
                 <span className="text-[9px] text-slate-400 uppercase tracking-wider font-bold">Last Seen</span>
                 <span className="text-slate-800 font-semibold flex items-center gap-1">
                   <Clock className="w-3.5 h-3.5" />
-                  {phoneOnline ? "Just now" : new Date(pairedDevice.lastSeenAt).toLocaleTimeString()}
+                  {phoneOnline ? "Just now" : (targetTelemetry?.timestamp ? new Date(targetTelemetry.timestamp).toLocaleTimeString() : new Date(pairedDevice.lastSeenAt).toLocaleTimeString())}
                 </span>
               </div>
               <div className="flex flex-col gap-0.5">
                 <span className="text-[9px] text-slate-400 uppercase tracking-wider font-bold">GPS Status</span>
-                <span className="text-slate-800 font-semibold flex items-center gap-1">
+                <span className="text-slate-800 font-semibold flex items-center gap-1 font-mono uppercase text-[10px]">
                   <Compass className="w-3.5 h-3.5" />
-                  {phoneOnline ? "Active" : "Last Stored"}
+                  {targetTelemetry?.source || (phoneOnline ? "Active" : "Last Stored")}
+                </span>
+              </div>
+              <div className="flex flex-col gap-0.5 col-span-2 border-t border-slate-200/50 pt-2">
+                <span className="text-[9px] text-slate-400 uppercase tracking-wider font-bold">Location Status</span>
+                <span className="text-slate-800 font-semibold flex flex-col gap-0.5">
+                  {targetTelemetry?.latitude && targetTelemetry?.longitude ? (
+                    <>
+                      <span className="font-mono text-[10px] text-slate-800 font-bold">{targetTelemetry.latitude.toFixed(5)}° N, {Math.abs(targetTelemetry.longitude).toFixed(5)}° W</span>
+                      <span className="text-[9px] text-slate-400 font-normal normal-case">
+                        {phoneOnline ? "Live location" : "Last known location"} ({targetTelemetry.source}, ±{Math.round(targetTelemetry.accuracy)}m)
+                      </span>
+                    </>
+                  ) : (
+                    <span className="text-slate-400 text-[10px]">No Location Data Available</span>
+                  )}
                 </span>
               </div>
             </div>

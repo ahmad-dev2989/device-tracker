@@ -3,7 +3,11 @@ export type MessageType =
   | "DEVICE_STATUS"
   | "PAIRING_STATUS"
   | "ACK"
-  | "ERROR";
+  | "ERROR"
+  | "LOCATION_UPDATE"
+  | "DEVICE_TELEMETRY"
+  | "TELEMETRY_ACK"
+  | "TELEMETRY_ERROR";
 
 export interface Message {
   type: MessageType;
